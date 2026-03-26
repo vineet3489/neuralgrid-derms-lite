@@ -1,13 +1,13 @@
 databases:
-  - name: neuralgrid-db
-    databaseName: neuralgrid
-    user: neuralgrid
+  - name: neuralgrid-lite-db
+    databaseName: neuralgrid_lite
+    user: neuralgrid_lite
     plan: free
 
 services:
   # ── Backend (FastAPI via Docker) ───────────────────────────────────────────
   - type: web
-    name: neuralgrid-backend
+    name: neuralgrid-lite-backend
     plan: free
     runtime: docker
     dockerfilePath: ./Dockerfile
@@ -16,12 +16,12 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: neuralgrid-db
+          name: neuralgrid-lite-db
           property: connectionString
       - key: SECRET_KEY
         generateValue: true
       - key: ALLOWED_ORIGINS
-        value: https://neuralgrid-frontend.onrender.com
+        value: https://neuralgrid-lite-frontend.onrender.com
       - key: STATIC_DIR
         value: ""
       - key: PYTHONUNBUFFERED
@@ -29,7 +29,7 @@ services:
 
   # ── Frontend (Vite → static site) ─────────────────────────────────────────
   - type: web
-    name: neuralgrid-frontend
+    name: neuralgrid-lite-frontend
     plan: free
     runtime: static
     rootDir: frontend
@@ -41,4 +41,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://neuralgrid-backend.onrender.com
+        value: https://neuralgrid-lite-backend.onrender.com
