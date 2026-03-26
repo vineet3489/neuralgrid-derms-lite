@@ -1,9 +1,3 @@
-databases:
-  - name: neuralgrid-lite-db
-    databaseName: neuralgrid_lite
-    user: neuralgrid_lite
-    plan: free
-
 services:
   # ── Backend (FastAPI via Docker) ───────────────────────────────────────────
   - type: web
@@ -14,9 +8,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: neuralgrid-lite-db
-          property: connectionString
+        sync: false          # Set manually in Render dashboard — paste your existing DB connection string
       - key: SECRET_KEY
         generateValue: true
       - key: ALLOWED_ORIGINS
