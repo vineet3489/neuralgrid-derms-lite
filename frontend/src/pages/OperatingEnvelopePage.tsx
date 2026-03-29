@@ -1,4 +1,8 @@
 import React, { useState } from 'react'
+import {
+  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer, ReferenceLine,
+} from 'recharts'
 import { DISTRIBUTION_TRANSFORMERS, DER_ASSETS } from '../data/auzanceNetwork'
 import { CheckCircle, Copy, ChevronDown, ChevronUp, Loader2, Send } from 'lucide-react'
 import clsx from 'clsx'
@@ -167,6 +171,27 @@ export default function OperatingEnvelopePage() {
     setD4gResponse(buildD4GResponse(selectedDtId, oeDoc))
   }
 
+  const rollingOEData = React.useMemo(() => {
+    if (oePoints.length === 0) return []
+    const now = new Date()
+    const slots = []
+    for (let i = -12; i < 12; i++) {
+      const t = new Date(now.getTime() + i * 30 * 60 * 1000)
+      const h = t.getHours()
+      const m = t.getMinutes() < 30 ? '00' : '30'
+      const label = `${String(h).padStart(2,'0')}:${m}`
+      const isPast = i < 0
+      const slotIdx = Math.min(Math.max(Math.floor((h * 60 + t.getMinutes()) / 30), 0), 47)
+      const slot = oePoints[slotIdx] || oePoints[0]
+      const exportLimit = slot?.quantity_Maximum ?? 120
+      const importLimit = slot ? Math.abs(slot.quantity_Minimum) : 50
+      // Simulate actual generation for past slots (noisy around export limit)
+      const actualGen = isPast ? Math.max(0, exportLimit * (0.8 + Math.random() * 0.35)) : undefined
+      slots.push({ label, exportLimit, importLimit, actualGen })
+    }
+    return slots
+  }, [oePoints])
+
   const d4gDers = d4gResponse?.FlexOfferResponse_MarketDocument.DERGroupStatus || []
   const totalFlex = d4gDers.reduce((s, a) => s + a.availableCapacity_kW, 0)
   const totalCurrentGen = d4gDers.reduce((s, a) => s + a.currentGeneration_kW, 0)
@@ -249,6 +274,35 @@ export default function OperatingEnvelopePage() {
               </button>
             </div>
           </div>
+
+          {/* Rolling OE Timeline Chart */}
+          {oePoints.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                Rolling OE Timeline — 30-min windows
+              </h3>
+              <p className="text-xs text-gray-500 mb-3">
+                Past 6h (actual vs limit) + Next 6h (scheduled OE). Updates every 30 min.
+              </p>
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={rollingOEData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 9 }} interval={3} />
+                    <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} unit=" kW" />
+                    <Tooltip
+                      contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, fontSize: 11 }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 10, color: '#9ca3af' }} />
+                    <ReferenceLine x={rollingOEData[12]?.label} stroke="#818cf8" strokeWidth={2} label={{ value: 'Now', fill: '#818cf8', fontSize: 10 }} />
+                    <Area type="monotone" dataKey="exportLimit" name="Export Cap kW" fill="#10b98133" stroke="#10b981" strokeWidth={1.5} />
+                    <Area type="monotone" dataKey="importLimit" name="Import Cap kW" fill="#3b82f633" stroke="#3b82f6" strokeWidth={1.5} />
+                    <Line type="monotone" dataKey="actualGen" name="Actual Gen kW" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
 
           {/* OE Table */}
           {oePoints.length > 0 && oeDoc && (

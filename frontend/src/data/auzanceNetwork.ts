@@ -74,3 +74,66 @@ export const DER_ASSETS: DERAsset[] = [
   { id: 'AST-AUZ-009', dt_id: 'DT-AUZ-005', name: 'Bois-Rond Solar Farm', type: 'SOLAR_PV', lat: 46.0188, lng: 2.5362, capacity_kw: 300, current_kw: -285.6, status: 'ONLINE', doe_export_kw: 250 },
   { id: 'AST-AUZ-010', dt_id: 'DT-AUZ-005', name: 'Bois-Rond BESS', type: 'BESS', lat: 46.0172, lng: 2.5345, capacity_kw: 150, current_kw: -142.8, soc_pct: 89, status: 'ONLINE', doe_export_kw: 120 },
 ]
+
+// ─── LV Network (400V) ───────────────────────────────────────────────────────
+
+export interface LVFeeder {
+  id: string
+  dt_id: string
+  name: string
+  loading_pct: number
+  coordinates: [number, number][]   // cable route [lat, lng]
+}
+
+export interface LVConnectionPoint {
+  id: string
+  feeder_id: string
+  dt_id: string
+  lat: number
+  lng: number
+  type: 'RESIDENTIAL' | 'COMMERCIAL' | 'DER_HOST'
+  der_id?: string
+  label?: string
+}
+
+// LV feeders: 400V cables radiating from each DT to customer connection points
+export const LV_FEEDERS: LVFeeder[] = [
+  // DT-AUZ-001 "Hameau des Fougères" — 3 feeders
+  { id: 'LV-001-A', dt_id: 'DT-AUZ-001', name: 'Fougères Rue A', loading_pct: 62, coordinates: [[46.035, 2.485],[46.0358, 2.4862],[46.0362, 2.4868],[46.0368, 2.4874]] },
+  { id: 'LV-001-B', dt_id: 'DT-AUZ-001', name: 'Fougères Rue B', loading_pct: 48, coordinates: [[46.035, 2.485],[46.0342, 2.4845],[46.0335, 2.4835],[46.033, 2.4828]] },
+  { id: 'LV-001-C', dt_id: 'DT-AUZ-001', name: 'Fougères Impasse', loading_pct: 35, coordinates: [[46.035, 2.485],[46.0356, 2.4838],[46.0358, 2.4842]] },
+  // DT-AUZ-002 "La Croix Blanche" — 2 feeders
+  { id: 'LV-002-A', dt_id: 'DT-AUZ-002', name: 'Croix Blanche Rd', loading_pct: 55, coordinates: [[46.048, 2.478],[46.0488, 2.477],[46.0492, 2.4768],[46.0496, 2.4762]] },
+  { id: 'LV-002-B', dt_id: 'DT-AUZ-002', name: 'Croix Blanche Lane', loading_pct: 40, coordinates: [[46.048, 2.478],[46.0474, 2.4788],[46.0475, 2.4792]] },
+  // DT-AUZ-003 "Moulin Neuf" — 2 feeders
+  { id: 'LV-003-A', dt_id: 'DT-AUZ-003', name: 'Moulin Farm Rd', loading_pct: 42, coordinates: [[46.055, 2.495],[46.0556, 2.4952],[46.0558, 2.4952],[46.056, 2.4958]] },
+  { id: 'LV-003-B', dt_id: 'DT-AUZ-003', name: 'Moulin Village', loading_pct: 28, coordinates: [[46.055, 2.495],[46.0546, 2.4964],[46.0545, 2.4968]] },
+  // DT-AUZ-004 "Zone Industrielle Est" — 1 feeder (industrial)
+  { id: 'LV-004-A', dt_id: 'DT-AUZ-004', name: 'ZI Est Service', loading_pct: 91, coordinates: [[46.022, 2.515],[46.0222, 2.5152],[46.0225, 2.5155],[46.0228, 2.5158]] },
+  // DT-AUZ-005 "Ferme Solaire Bois-Rond" — 2 feeders (CRITICAL overloaded)
+  { id: 'LV-005-A', dt_id: 'DT-AUZ-005', name: 'Bois-Rond Farm Rd', loading_pct: 112, coordinates: [[46.018, 2.535],[46.0185, 2.5358],[46.0188, 2.5362],[46.019, 2.5368]] },
+  { id: 'LV-005-B', dt_id: 'DT-AUZ-005', name: 'Bois-Rond BESS Spur', loading_pct: 98, coordinates: [[46.018, 2.535],[46.0174, 2.5344],[46.0172, 2.5345]] },
+]
+
+// LV connection points: customer terminals and DER host points on each feeder
+export const LV_CONNECTION_POINTS: LVConnectionPoint[] = [
+  // DT-AUZ-001 connections
+  { id: 'CP-001-01', feeder_id: 'LV-001-A', dt_id: 'DT-AUZ-001', lat: 46.0362, lng: 2.4868, type: 'DER_HOST', der_id: 'AST-AUZ-001', label: 'Solar A' },
+  { id: 'CP-001-02', feeder_id: 'LV-001-A', dt_id: 'DT-AUZ-001', lat: 46.0368, lng: 2.4874, type: 'RESIDENTIAL', label: 'House 1' },
+  { id: 'CP-001-03', feeder_id: 'LV-001-B', dt_id: 'DT-AUZ-001', lat: 46.0335, lng: 2.4835, type: 'DER_HOST', der_id: 'AST-AUZ-002', label: 'Solar B' },
+  { id: 'CP-001-04', feeder_id: 'LV-001-B', dt_id: 'DT-AUZ-001', lat: 46.033, lng: 2.4828, type: 'RESIDENTIAL', label: 'House 2' },
+  { id: 'CP-001-05', feeder_id: 'LV-001-C', dt_id: 'DT-AUZ-001', lat: 46.0358, lng: 2.4842, type: 'DER_HOST', der_id: 'AST-AUZ-003', label: 'BESS' },
+  // DT-AUZ-002 connections
+  { id: 'CP-002-01', feeder_id: 'LV-002-A', dt_id: 'DT-AUZ-002', lat: 46.0492, lng: 2.4768, type: 'DER_HOST', der_id: 'AST-AUZ-004', label: 'Wind' },
+  { id: 'CP-002-02', feeder_id: 'LV-002-A', dt_id: 'DT-AUZ-002', lat: 46.0496, lng: 2.4762, type: 'RESIDENTIAL', label: 'House 3' },
+  { id: 'CP-002-03', feeder_id: 'LV-002-B', dt_id: 'DT-AUZ-002', lat: 46.0475, lng: 2.4792, type: 'DER_HOST', der_id: 'AST-AUZ-005', label: 'EV Hub' },
+  // DT-AUZ-003 connections
+  { id: 'CP-003-01', feeder_id: 'LV-003-A', dt_id: 'DT-AUZ-003', lat: 46.0558, lng: 2.4952, type: 'DER_HOST', der_id: 'AST-AUZ-006', label: 'Farm Solar' },
+  { id: 'CP-003-02', feeder_id: 'LV-003-B', dt_id: 'DT-AUZ-003', lat: 46.0545, lng: 2.4968, type: 'DER_HOST', der_id: 'AST-AUZ-007', label: 'Agri DSR' },
+  // DT-AUZ-004 connections
+  { id: 'CP-004-01', feeder_id: 'LV-004-A', dt_id: 'DT-AUZ-004', lat: 46.0225, lng: 2.5155, type: 'DER_HOST', der_id: 'AST-AUZ-008', label: 'ZI Industrial' },
+  { id: 'CP-004-02', feeder_id: 'LV-004-A', dt_id: 'DT-AUZ-004', lat: 46.0228, lng: 2.5158, type: 'COMMERCIAL', label: 'Office A' },
+  // DT-AUZ-005 connections
+  { id: 'CP-005-01', feeder_id: 'LV-005-A', dt_id: 'DT-AUZ-005', lat: 46.0188, lng: 2.5362, type: 'DER_HOST', der_id: 'AST-AUZ-009', label: 'Solar Farm' },
+  { id: 'CP-005-02', feeder_id: 'LV-005-B', dt_id: 'DT-AUZ-005', lat: 46.0172, lng: 2.5345, type: 'DER_HOST', der_id: 'AST-AUZ-010', label: 'BESS' },
+]

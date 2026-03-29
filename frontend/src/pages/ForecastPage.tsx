@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
+  Legend, ResponsiveContainer, ComposedChart, Bar, Line,
 } from 'recharts'
 import { RefreshCw, TrendingDown } from 'lucide-react'
 import clsx from 'clsx'
@@ -71,6 +71,48 @@ function generateForecastData(): ForecastPoint[] {
   }
   return points
 }
+
+function generateHistoricalData() {
+  const days = ['Mar 15','Mar 16','Mar 17','Mar 18','Mar 19','Mar 20','Mar 21',
+                 'Mar 22','Mar 23','Mar 24','Mar 25','Mar 26','Mar 27','Mar 28']
+  const isWeekend = [false,false,false,false,false,true,true,false,false,false,false,false,false,false]
+  return days.map((date, i) => ({
+    date,
+    solarActual: Math.round(320 + Math.random() * 100 + (i > 10 ? 30 : 0)),
+    loadActual: Math.round(isWeekend[i] ? 140 + Math.random() * 40 : 170 + Math.random() * 60),
+    flexActual: Math.round(60 + Math.random() * 140),
+  }))
+}
+
+type DERStatus = 'AVAILABLE' | 'OPT_OUT' | 'CURTAILED' | 'OFFLINE'
+
+interface DERDayStatus {
+  der: string
+  derShort: string
+  statuses: DERStatus[]  // 14 values, one per day
+}
+
+const STATUS_COLOR: Record<DERStatus, string> = {
+  AVAILABLE: '#22c55e',
+  OPT_OUT: '#ef4444',
+  CURTAILED: '#f59e0b',
+  OFFLINE: '#6b7280',
+}
+
+const OPT_OUT_HISTORY: DERDayStatus[] = [
+  { der: 'Community Solar A', derShort: 'Solar A', statuses: ['AVAILABLE','AVAILABLE','AVAILABLE','CURTAILED','AVAILABLE','AVAILABLE','AVAILABLE','CURTAILED','CURTAILED','AVAILABLE','AVAILABLE','CURTAILED','CURTAILED','CURTAILED'] },
+  { der: 'Community Solar B', derShort: 'Solar B', statuses: ['AVAILABLE','AVAILABLE','OPT_OUT','OPT_OUT','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','CURTAILED','CURTAILED','AVAILABLE','CURTAILED','CURTAILED','CURTAILED'] },
+  { der: 'Fougères BESS', derShort: 'BESS F', statuses: ['AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','CURTAILED','AVAILABLE','AVAILABLE','AVAILABLE','CURTAILED','AVAILABLE','AVAILABLE','CURTAILED','AVAILABLE'] },
+  { der: 'Croix Blanche Wind', derShort: 'Wind CB', statuses: ['AVAILABLE','OFFLINE','OFFLINE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','OPT_OUT','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE'] },
+  { der: 'EV Hub CB', derShort: 'EV Hub', statuses: ['OPT_OUT','OPT_OUT','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','OPT_OUT','AVAILABLE','AVAILABLE','OPT_OUT','AVAILABLE','AVAILABLE','AVAILABLE'] },
+  { der: 'Moulin Farm Solar', derShort: 'Solar M', statuses: ['AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','CURTAILED','AVAILABLE','AVAILABLE','AVAILABLE','CURTAILED','AVAILABLE','AVAILABLE','CURTAILED','CURTAILED','CURTAILED'] },
+  { der: 'Moulin Agri DSR', derShort: 'Agri DSR', statuses: ['AVAILABLE','AVAILABLE','AVAILABLE','OPT_OUT','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','OPT_OUT','AVAILABLE','AVAILABLE','CURTAILED','AVAILABLE'] },
+  { der: 'ZI Est Industrial', derShort: 'ZI Ind', statuses: ['AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','OPT_OUT','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','AVAILABLE','CURTAILED','CURTAILED'] },
+  { der: 'Bois-Rond Solar', derShort: 'Solar BR', statuses: ['AVAILABLE','AVAILABLE','CURTAILED','AVAILABLE','CURTAILED','AVAILABLE','AVAILABLE','CURTAILED','CURTAILED','CURTAILED','CURTAILED','CURTAILED','CURTAILED','CURTAILED'] },
+  { der: 'Bois-Rond BESS', derShort: 'BESS BR', statuses: ['AVAILABLE','AVAILABLE','CURTAILED','CURTAILED','AVAILABLE','CURTAILED','AVAILABLE','CURTAILED','CURTAILED','CURTAILED','CURTAILED','CURTAILED','CURTAILED','CURTAILED'] },
+]
+
+const DAY_LABELS = ['M15','M16','M17','M18','M19','M20','M21','M22','M23','M24','M25','M26','M27','M28']
 
 const X_TICKS = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44]
 const X_TICK_LABELS: Record<number, string> = {
@@ -192,6 +234,7 @@ function ChartPanel({
 
 export default function ForecastPage() {
   const [data, setData] = useState<ForecastPoint[]>(() => generateForecastData())
+  const [historicalData] = useState(() => generateHistoricalData())
   const [refreshing, setRefreshing] = useState(false)
 
   const handleRefresh = useCallback(async () => {
@@ -278,6 +321,26 @@ export default function ForecastPage() {
         </div>
       </div>
 
+      {/* 14-Day Historical Actuals */}
+      <div className="card">
+        <h3 className="text-sm font-semibold text-white mb-1">14-Day Historical Actuals</h3>
+        <p className="text-xs text-gray-500 mb-4">Daily peak values — solar generation, load demand, flex dispatched</p>
+        <div className="h-52">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={historicalData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+              <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} unit=" kW" />
+              <Tooltip contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, fontSize: 11 }} />
+              <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
+              <Bar dataKey="solarActual" name="Solar Peak kW" fill="#eab308" opacity={0.8} radius={[2,2,0,0]} />
+              <Bar dataKey="loadActual" name="Load Peak kW" fill="#6366f1" opacity={0.8} radius={[2,2,0,0]} />
+              <Line type="monotone" dataKey="flexActual" name="Flex Dispatched kW" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
       {/* Charts */}
       <ChartPanel
         title="Solar Generation Forecast"
@@ -318,6 +381,60 @@ export default function ForecastPage() {
         peakOrig={parseFloat(peakOrigFlex.toFixed(1))}
         peakAdj={parseFloat(peakAdjFlex.toFixed(1))}
       />
+
+      {/* DER Availability & Opt-out History */}
+      <div className="card">
+        <h3 className="text-sm font-semibold text-white mb-1">DER Availability &amp; Opt-out History</h3>
+        <p className="text-xs text-gray-500 mb-4">14-day availability per DER — Mar 15 to Mar 28</p>
+
+        {/* Header row — day labels */}
+        <div className="flex items-center gap-1 mb-1 ml-20">
+          {DAY_LABELS.map(d => (
+            <div key={d} className="flex-1 text-center text-[9px] text-gray-500 font-mono">{d}</div>
+          ))}
+        </div>
+
+        {/* DER rows */}
+        <div className="space-y-1">
+          {OPT_OUT_HISTORY.map(row => (
+            <div key={row.der} className="flex items-center gap-1">
+              <div className="w-20 flex-shrink-0 text-[10px] text-gray-400 text-right pr-2 truncate">{row.derShort}</div>
+              {row.statuses.map((status, i) => (
+                <div
+                  key={i}
+                  className="flex-1 h-5 rounded-sm cursor-default"
+                  style={{ background: STATUS_COLOR[status], opacity: 0.85 }}
+                  title={`${row.der} · ${DAY_LABELS[i]} · ${status}`}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 mt-3">
+          {(Object.entries(STATUS_COLOR) as [DERStatus, string][]).map(([status, color]) => (
+            <div key={status} className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-sm" style={{ background: color }} />
+              <span className="text-xs text-gray-400">{status.replace('_', ' ')}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Summary stats */}
+        <div className="mt-3 pt-3 border-t border-gray-700 grid grid-cols-4 gap-3">
+          {(['AVAILABLE','OPT_OUT','CURTAILED','OFFLINE'] as DERStatus[]).map(status => {
+            const count = OPT_OUT_HISTORY.flatMap(r => r.statuses).filter(s => s === status).length
+            const pct = ((count / (OPT_OUT_HISTORY.length * 14)) * 100).toFixed(0)
+            return (
+              <div key={status} className="text-center">
+                <div className="text-sm font-bold" style={{ color: STATUS_COLOR[status] }}>{pct}%</div>
+                <div className="text-xs text-gray-500">{status.replace('_',' ')}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }

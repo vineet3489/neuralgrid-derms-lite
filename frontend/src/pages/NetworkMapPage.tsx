@@ -10,8 +10,10 @@ import {
   HTA_CIRCUITS,
   DISTRIBUTION_TRANSFORMERS,
   DER_ASSETS,
+  LV_FEEDERS,
+  LV_CONNECTION_POINTS,
 } from '../data/auzanceNetwork'
-import type { DistributionTransformer, DERAsset } from '../data/auzanceNetwork'
+import type { DistributionTransformer, DERAsset, LVFeeder, LVConnectionPoint } from '../data/auzanceNetwork'
 import { Upload, Layers, X } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -66,7 +68,7 @@ function circuitColor(loading_pct: number): string {
   return '#22c55e'
 }
 
-const ALL_LAYERS = ['HV Substation', 'HTA Circuits', 'Distribution Transformers', 'DER Assets']
+const ALL_LAYERS = ['HV Substation', 'HTA Circuits (MV)', 'LV Feeders (400V)', 'Distribution Transformers', 'DER Assets', 'Connection Points']
 
 export default function NetworkMapPage() {
   const navigate = useNavigate()
@@ -202,6 +204,34 @@ export default function NetworkMapPage() {
             ${der.doe_import_kw !== undefined ? `<div>DOE Import Limit: ${der.doe_import_kw} kW</div>` : ''}
           </div>
         `)
+        .addTo(map)
+    })
+
+    // LV Feeders (400V) — thin lines from DT to connection points
+    LV_FEEDERS.forEach((feeder) => {
+      const color = feeder.loading_pct >= 100 ? '#ef4444' : feeder.loading_pct >= 75 ? '#f59e0b' : '#6b7280'
+      L.polyline(feeder.coordinates as L.LatLngExpression[], {
+        color,
+        weight: 1.5,
+        opacity: 0.8,
+        dashArray: '4 3',
+      })
+        .bindTooltip(`${feeder.name} · ${feeder.loading_pct}% loaded · 400V LV`, { sticky: true })
+        .addTo(map)
+    })
+
+    // LV Connection Points
+    LV_CONNECTION_POINTS.forEach((cp) => {
+      const color = cp.type === 'DER_HOST' ? '#818cf8' : cp.type === 'COMMERCIAL' ? '#fbbf24' : '#6b7280'
+      const radius = cp.type === 'DER_HOST' ? 4 : 3
+      L.circleMarker([cp.lat, cp.lng], {
+        radius,
+        fillColor: color,
+        color: '#1f2937',
+        weight: 1,
+        fillOpacity: 0.9,
+      })
+        .bindTooltip(`${cp.label || cp.id} · ${cp.type.replace('_', ' ')}`, { sticky: true })
         .addTo(map)
     })
 
@@ -576,6 +606,14 @@ export default function NetworkMapPage() {
           <span className="text-xs text-gray-400">Violations:</span>
           <span className={clsx('text-xs font-semibold', distressedDTs > 0 ? 'text-red-400' : 'text-green-400')}>
             {distressedDTs} DT{distressedDTs !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">LV Feeders:</span>
+          <span className={clsx('text-xs font-semibold',
+            LV_FEEDERS.filter(f => f.loading_pct > 100).length > 0 ? 'text-red-400' : 'text-gray-300'
+          )}>
+            {LV_FEEDERS.length} · {LV_FEEDERS.filter(f => f.loading_pct > 100).length} overloaded
           </span>
         </div>
         <div className="flex items-center gap-1.5 ml-2">
