@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import {
   ArrowDownLeft, ArrowUpRight, CheckCircle2,
-  ChevronDown, BarChart2,
+  ChevronDown, BarChart2, Play, RotateCcw, Loader2,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -239,11 +239,61 @@ function JsonHighlight({ json }: { json: unknown }) {
   )
 }
 
+// Delay (ms) before each message appears during simulation
+const MSG_DELAYS: Record<string, number> = {
+  'MSG-001': 400,   // OE sent immediately
+  'MSG-002': 1200,  // Baseline report — aggregator responds in ~1s
+  'MSG-003': 800,   // Flex offer follows quickly
+  'MSG-004': 600,   // ACK
+  'MSG-005': 2000,  // Telemetry arrives at event start (simulated gap)
+  'MSG-006': 1500,  // 15-min telemetry
+  'MSG-007': 2500,  // Performance report — end of event
+  'MSG-008': 800,   // Settlement ACK
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function D4GMessagesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [activeView, setActiveView] = useState<'thread' | 'performance'>('thread')
+  const [activeView, setActiveView] = useState<'thread' | 'live' | 'performance'>('thread')
+
+  // Simulation state
+  const [liveMessages, setLiveMessages] = useState<D4GMessage[]>([])
+  const [simRunning, setSimRunning] = useState(false)
+  const [simDone, setSimDone] = useState(false)
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null)
+  const simRef = useRef<boolean>(false)
+
+  const startSimulation = async () => {
+    setLiveMessages([])
+    setSimDone(false)
+    setSimRunning(true)
+    simRef.current = true
+
+    for (const msg of MESSAGE_THREAD) {
+      if (!simRef.current) break
+      const delay = MSG_DELAYS[msg.id] ?? 1000
+      // Show "awaiting…" indicator
+      setPendingLabel(msg.direction === 'outbound' ? `Sending ${msg.typeLabel}…` : `Awaiting ${msg.typeLabel}…`)
+      await new Promise((r) => setTimeout(r, delay))
+      if (!simRef.current) break
+      setLiveMessages((prev) => [...prev, { ...msg, timestamp: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }])
+      setPendingLabel(null)
+      await new Promise((r) => setTimeout(r, 200)) // brief gap between messages
+    }
+    setPendingLabel(null)
+    setSimRunning(false)
+    setSimDone(true)
+    simRef.current = false
+  }
+
+  const resetSimulation = () => {
+    simRef.current = false
+    setSimRunning(false)
+    setSimDone(false)
+    setLiveMessages([])
+    setPendingLabel(null)
+  }
 
   const totalDelivered = ASSET_PERFORMANCE.reduce((s, a) => s + a.delivered, 0)
   const totalCommitted = ASSET_PERFORMANCE.reduce((s, a) => s + a.committed, 0)
@@ -264,7 +314,15 @@ export default function D4GMessagesPage() {
               activeView === 'thread' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200')}
           >
             <ArrowDownLeft className="w-3.5 h-3.5" />
-            Message Thread
+            Thread
+          </button>
+          <button
+            onClick={() => setActiveView('live')}
+            className={clsx('px-3 py-1.5 rounded text-xs font-medium transition-colors flex items-center gap-1.5',
+              activeView === 'live' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200')}
+          >
+            <Play className="w-3.5 h-3.5" />
+            Live Sim
           </button>
           <button
             onClick={() => setActiveView('performance')}
@@ -382,6 +440,117 @@ export default function D4GMessagesPage() {
             })}
           </div>
 
+        </>
+      )}
+
+      {/* ── Live Simulation view ─────────────────────────────────────────────── */}
+      {activeView === 'live' && (
+        <>
+          {/* Controls */}
+          <div className="card flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-200 font-medium">Lifecycle Simulation</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Replays the full OE → Baseline → Flex → ACK → Telemetry → Performance sequence with realistic timing.
+                Timestamps reflect when each message was sent/received.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+              {(simDone || liveMessages.length > 0) && (
+                <button onClick={resetSimulation} className="btn-secondary flex items-center gap-2 text-xs py-1.5">
+                  <RotateCcw className="w-3.5 h-3.5" /> Reset
+                </button>
+              )}
+              <button
+                onClick={startSimulation}
+                disabled={simRunning}
+                className="btn-primary flex items-center gap-2 text-sm"
+              >
+                {simRunning
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Simulating…</>
+                  : <><Play className="w-4 h-4" /> {liveMessages.length > 0 ? 'Replay' : 'Start Simulation'}</>
+                }
+              </button>
+            </div>
+          </div>
+
+          {/* Live message feed */}
+          {liveMessages.length === 0 && !simRunning && (
+            <div className="card flex flex-col items-center justify-center py-16 text-gray-500">
+              <Play className="w-8 h-8 mb-3 text-gray-600" />
+              <p className="text-sm">Press Start Simulation to watch the D4G message exchange play out</p>
+            </div>
+          )}
+
+          {(liveMessages.length > 0 || simRunning) && (
+            <div className="space-y-2">
+              {liveMessages.map((msg) => {
+                const isInbound = msg.direction === 'inbound'
+                const tagCls = msgTagClass(msg.direction, msg.typeLabel)
+                const isExp = expandedId === msg.id
+                return (
+                  <div
+                    key={msg.id}
+                    className={clsx(
+                      'rounded-xl border transition-all animate-fade-in',
+                      isInbound ? 'border-gray-700/60 bg-gray-800/40' : 'border-indigo-900/40 bg-indigo-950/30',
+                    )}
+                  >
+                    <div className="flex items-start gap-3 p-3.5 cursor-pointer"
+                      onClick={() => setExpandedId(isExp ? null : msg.id)}>
+                      <div className={clsx(
+                        'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5',
+                        isInbound ? 'bg-teal-900/60' : 'bg-indigo-900/60'
+                      )}>
+                        {isInbound
+                          ? <ArrowDownLeft className="w-3.5 h-3.5 text-teal-400" />
+                          : <ArrowUpRight className="w-3.5 h-3.5 text-indigo-400" />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border', tagCls)}>
+                            {msg.typeLabel}
+                          </span>
+                          <span className="text-xs text-gray-500 font-mono">{msg.timestamp}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-green-900/40 text-green-400">
+                            {isInbound ? 'RECEIVED' : 'SENT'}
+                          </span>
+                          <span className="text-[10px] text-gray-600 ml-auto hidden sm:block">{isInbound ? 'D4G → DSO' : 'DSO → D4G'}</span>
+                        </div>
+                        <p className="text-xs text-gray-300 mt-1">{msg.summary}</p>
+                      </div>
+                      <ChevronDown className={clsx('w-4 h-4 text-gray-500 flex-shrink-0 transition-transform mt-1', isExp && 'rotate-180')} />
+                    </div>
+                    {isExp && (
+                      <div className="border-t border-gray-700/50 mx-3.5 mb-3.5 pt-3">
+                        <div className="text-[10px] text-gray-500 mb-1.5 font-medium uppercase tracking-wide">Payload — {msg.type}</div>
+                        <div className="bg-gray-900/80 rounded-lg p-3 max-h-64 overflow-y-auto">
+                          <JsonHighlight json={msg.payload} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* Pending indicator */}
+              {pendingLabel && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-700/40 bg-gray-800/30">
+                  <Loader2 className="w-4 h-4 text-indigo-400 animate-spin flex-shrink-0" />
+                  <span className="text-xs text-gray-400">{pendingLabel}</span>
+                </div>
+              )}
+
+              {/* Done banner */}
+              {simDone && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-green-800/40 bg-green-900/20">
+                  <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+                  <span className="text-sm text-green-300 font-medium">Lifecycle complete — all 8 messages exchanged</span>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
