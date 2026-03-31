@@ -10,9 +10,11 @@ from app.config import settings
 
 
 def fix_db_url(url: str) -> str:
-    """Fix Render PostgreSQL URL format (postgres:// → postgresql+asyncpg://)."""
+    """Fix Render PostgreSQL URL format to use asyncpg driver."""
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
     return url
 
 
