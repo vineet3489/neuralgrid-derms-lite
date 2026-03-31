@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import {
-  ArrowDownLeft, ArrowUpRight, CheckCircle2, Clock, AlertTriangle,
-  ChevronDown, BarChart2, Zap,
+  ArrowDownLeft, ArrowUpRight, CheckCircle2,
+  ChevronDown, BarChart2,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -210,15 +210,11 @@ const ASSET_PERFORMANCE = [
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const MSG_TYPE_COLOR: Record<string, string> = {
-  'Operating Envelope':          'bg-indigo-900/50 text-indigo-300 border-indigo-700/40',
-  'Baseline Report':             'bg-blue-900/50 text-blue-300 border-blue-700/40',
-  'Flex Availability':           'bg-teal-900/50 text-teal-300 border-teal-700/40',
-  'Acknowledgement':             'bg-green-900/50 text-green-300 border-green-700/40',
-  'Telemetry (11:00)':           'bg-gray-800 text-gray-300 border-gray-700',
-  'Telemetry (11:15)':           'bg-gray-800 text-gray-300 border-gray-700',
-  'Performance Report':          'bg-amber-900/50 text-amber-300 border-amber-700/40',
-  'Settlement Acknowledgement':  'bg-purple-900/50 text-purple-300 border-purple-700/40',
+// outbound = DSO → D4G (indigo), inbound = D4G → DSO (teal), telemetry = gray
+function msgTagClass(direction: MsgDirection, typeLabel: string): string {
+  if (typeLabel.startsWith('Telemetry')) return 'bg-gray-700/60 text-gray-300 border-gray-600/50'
+  if (direction === 'outbound') return 'bg-indigo-900/50 text-indigo-300 border-indigo-700/40'
+  return 'bg-teal-900/50 text-teal-300 border-teal-700/40'
 }
 
 function JsonHighlight({ json }: { json: unknown }) {
@@ -258,10 +254,8 @@ export default function D4GMessagesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">D4G Message Exchange</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            Protocol message thread between DSO and DER Aggregator · Event EVT-AUZ-001 · DT-AUZ-005
-          </p>
+          <h1 className="text-xl font-bold text-white">D4G Messages</h1>
+          <p className="text-sm text-gray-400 mt-0.5">EVT-AUZ-001 · DT-AUZ-005 · IEC 62746-4</p>
         </div>
         <div className="flex gap-1 bg-gray-800 rounded-lg p-1">
           <button
@@ -315,7 +309,7 @@ export default function D4GMessagesPage() {
           <div className="space-y-2">
             {MESSAGE_THREAD.map((msg) => {
               const isExpanded = expandedId === msg.id
-              const tagCls = MSG_TYPE_COLOR[msg.typeLabel] || 'bg-gray-800 text-gray-300 border-gray-700'
+              const tagCls = msgTagClass(msg.direction, msg.typeLabel)
               const isInbound = msg.direction === 'inbound'
 
               return (
@@ -388,31 +382,6 @@ export default function D4GMessagesPage() {
             })}
           </div>
 
-          {/* Summary timeline */}
-          <div className="card">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Event Timeline</h3>
-            <div className="space-y-2">
-              {[
-                { time: '14:32:01', label: 'OE sent to D4G aggregator', icon: ArrowUpRight, color: 'text-indigo-400' },
-                { time: '14:32:04', label: 'Baseline report received', icon: ArrowDownLeft, color: 'text-blue-400' },
-                { time: '14:32:06', label: 'Flex availability offer received (240 kW)', icon: ArrowDownLeft, color: 'text-teal-400' },
-                { time: '14:32:09', label: 'Acknowledgement received — assets notified', icon: CheckCircle2, color: 'text-green-400' },
-                { time: '11:00:32', label: 'Curtailment began — voltage recovering', icon: Zap, color: 'text-amber-400' },
-                { time: '11:15:31', label: 'Telemetry: Solar marginally over (+1.8 kW)', icon: AlertTriangle, color: 'text-amber-400' },
-                { time: '17:02:14', label: 'Performance report received — 96.4% delivery', icon: CheckCircle2, color: 'text-green-400' },
-                { time: '17:05:00', label: 'Settlement acknowledgement sent', icon: ArrowUpRight, color: 'text-purple-400' },
-              ].map((ev) => {
-                const Icon = ev.icon
-                return (
-                  <div key={ev.time} className="flex items-center gap-3">
-                    <span className="text-xs font-mono text-gray-500 w-16 flex-shrink-0">{ev.time}</span>
-                    <Icon className={clsx('w-3.5 h-3.5 flex-shrink-0', ev.color)} />
-                    <span className="text-xs text-gray-300">{ev.label}</span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
         </>
       )}
 
@@ -535,17 +504,6 @@ export default function D4GMessagesPage() {
             </table>
           </div>
 
-          {/* Settlement readiness */}
-          <div className="flex items-start gap-3 bg-green-900/20 border border-green-800/30 rounded-xl p-4">
-            <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-green-300">Ready for Settlement</p>
-              <p className="text-sm text-green-200/80 mt-1">
-                96.4% delivery exceeds the 80% penalty threshold. Availability payment + utilisation payment
-                will be calculated in the next settlement cycle. No penalties apply.
-              </p>
-            </div>
-          </div>
         </>
       )}
     </div>

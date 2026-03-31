@@ -325,34 +325,21 @@ export default function ForecastPage() {
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-6 gap-3">
-        <div className="card text-center">
-          <div className="text-xs text-gray-400 mb-1">Original Peak Solar</div>
-          <div className="text-lg font-bold text-blue-300">{peakOrigSolar.toFixed(0)} kW</div>
-        </div>
-        <div className="card text-center">
-          <div className="text-xs text-gray-400 mb-1">Adjusted Peak Solar</div>
-          <div className="text-lg font-bold text-green-300">{peakAdjSolar.toFixed(0)} kW</div>
-        </div>
+      <div className="grid grid-cols-3 gap-3">
         <div className="card text-center">
           <div className="text-xs text-gray-400 mb-1">Curtailment Applied</div>
-          <div className="text-lg font-bold text-amber-300">{curtailmentKw} kW</div>
-          <div className="text-xs text-amber-400">({curtailmentPct}%)</div>
-        </div>
-        <div className="card text-center">
-          <div className="text-xs text-gray-400 mb-1">Voltage Improvement</div>
-          <div className="text-sm font-bold text-green-300">1.091 → 1.044 pu</div>
-          <div className="text-xs text-gray-500">estimated</div>
+          <div className="text-xl font-bold text-amber-300">{curtailmentKw} kW <span className="text-sm text-amber-500">({curtailmentPct}%)</span></div>
+          <div className="text-xs text-gray-500 mt-0.5">{peakOrigSolar.toFixed(0)} → {peakAdjSolar.toFixed(0)} kW peak solar</div>
         </div>
         <div className="card text-center">
           <div className="text-xs text-gray-400 mb-1">OE Active Window</div>
-          <div className="text-sm font-bold text-indigo-300">11:00–17:00</div>
-          <div className="text-xs text-gray-500">6 hours</div>
+          <div className="text-xl font-bold text-indigo-300">11:00–17:00</div>
+          <div className="text-xs text-gray-500 mt-0.5">Voltage 1.091 → 1.044 pu</div>
         </div>
-        <div className="bg-gray-800/60 rounded-lg p-3">
-          <div className="text-xs text-gray-400">Load Increase (BESS shift)</div>
-          <div className="text-lg font-bold text-amber-400">+18 kW</div>
-          <div className="text-xs text-gray-500 mt-0.5">Grid draw during OE window</div>
+        <div className="card text-center">
+          <div className="text-xs text-gray-400 mb-1">BESS Grid Draw Shift</div>
+          <div className="text-xl font-bold text-green-300">+18 kW</div>
+          <div className="text-xs text-gray-500 mt-0.5">During OE window (solar curtailed)</div>
         </div>
       </div>
 
@@ -518,7 +505,6 @@ export default function ForecastPage() {
 
       <ChartPanel
         title="Load Demand Forecast"
-        subtitle="Adjusted load increases ~18 kW during OE window as BESS charging shifts from local solar to grid import"
         data={data}
         origKey="originalLoad"
         adjKey="adjustedLoad"

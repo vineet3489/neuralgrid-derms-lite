@@ -201,11 +201,7 @@ export default function OperatingEnvelopePage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold text-white">Operating Envelope</h1>
-        <p className="text-sm text-gray-400 mt-0.5">
-          Generate and send IEC 62746-4 CIM operating envelope to D4G aggregator.{' '}
-          <span className="text-indigo-400">Run power flow first for voltage-justified limits</span>{' '}
-          or generate directly from DOE asset limits.
-        </p>
+        <p className="text-sm text-gray-400 mt-0.5">IEC 62746-4 · 48-slot rolling window · published every 30 min</p>
       </div>
 
       <div className="grid grid-cols-2 gap-6">
@@ -213,15 +209,6 @@ export default function OperatingEnvelopePage() {
         <div className="space-y-4">
           <div className="card">
             <h2 className="text-sm font-semibold text-white mb-4">OE Generation</h2>
-
-            <div className="flex items-start gap-2 bg-gray-800/60 border border-gray-700/40 rounded-lg px-3 py-2.5 text-xs text-gray-400 mb-3">
-              <span className="text-indigo-400 font-bold flex-shrink-0">ℹ</span>
-              <span>
-                <strong className="text-gray-300">Without power flow:</strong> uses pre-set DOE asset limits (conservative).{' '}
-                <strong className="text-gray-300">After power flow:</strong> uses DistFlow-computed tight limits (precise).
-                Power flow results from the previous page are automatically applied if available.
-              </span>
-            </div>
 
             <div className="space-y-3">
               <div>
@@ -427,11 +414,6 @@ export default function OperatingEnvelopePage() {
                 <span className="badge-online text-xs">ACKNOWLEDGED</span>
               </div>
 
-              <div className="text-xs text-gray-400 mb-3 font-mono bg-gray-800 rounded p-2">
-                <div>mRID: {d4gResponse.FlexOfferResponse_MarketDocument.mRID}</div>
-                <div>correlationID: {d4gResponse.FlexOfferResponse_MarketDocument.correlationID}</div>
-              </div>
-
               {/* DER capacity table */}
               <div className="mb-4">
                 <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Available DER Capacity</h4>
@@ -473,27 +455,6 @@ export default function OperatingEnvelopePage() {
                     <div className="text-xs text-gray-400">Committed ↓</div>
                     <div className="text-sm font-bold text-green-300">{totalCommitted.toFixed(1)} kW</div>
                   </div>
-                </div>
-              </div>
-
-              {/* Status timeline */}
-              <div className="mb-4">
-                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Status Timeline</h4>
-                <div className="flex items-center gap-1 text-xs">
-                  {[
-                    { label: 'Sent', color: 'bg-green-500' },
-                    { label: 'Acknowledged', color: 'bg-green-500' },
-                    { label: 'Assets notified', color: 'bg-green-500' },
-                    { label: 'Confirming…', color: 'bg-amber-500 animate-pulse' },
-                  ].map((step, i) => (
-                    <React.Fragment key={step.label}>
-                      <div className="flex flex-col items-center gap-0.5">
-                        <div className={clsx('w-2.5 h-2.5 rounded-full', step.color)} />
-                        <span className="text-gray-400 text-[9px] whitespace-nowrap">{step.label}</span>
-                      </div>
-                      {i < 3 && <div className="flex-1 h-px bg-gray-600 mb-3" />}
-                    </React.Fragment>
-                  ))}
                 </div>
               </div>
 

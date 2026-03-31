@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { DISTRIBUTION_TRANSFORMERS, DER_ASSETS } from '../data/auzanceNetwork'
 import { api } from '../api/client'
-import { AlertTriangle, CheckCircle, Loader2, Radio } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 
 interface Bus {
@@ -191,16 +191,9 @@ export default function PowerFlowPage() {
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">LV Power Flow Analysis</h1>
-          <p className="text-sm text-gray-400 mt-0.5">DistFlow load-flow solver · radial LV network</p>
-        </div>
-        <button onClick={() => { localStorage.setItem('lite_selected_dt', selectedDtId); navigate('/envelope') }}
-          className="btn-secondary text-xs flex items-center gap-2">
-          <Radio className="w-3.5 h-3.5" />
-          Generate Operating Envelope
-        </button>
+      <div>
+        <h1 className="text-xl font-bold text-white">LV Power Flow</h1>
+        <p className="text-sm text-gray-400 mt-0.5">DistFlow solver · radial LV network below DT</p>
       </div>
 
       {/* DT Selector + Run Button */}
@@ -234,17 +227,13 @@ export default function PowerFlowPage() {
       {/* Results */}
       {result && (
         <>
-          {/* Violation alert */}
           {result.violations.length > 0 && (
-            <div className="flex items-start gap-3 bg-amber-900/30 border border-amber-700/50 rounded-xl p-4">
-              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-amber-300">High Voltage Detected</p>
-                <p className="text-sm text-amber-200/80 mt-1">
-                  Export generation exceeds DT hosting capacity. Recommend curtailing Bois-Rond Solar Farm
-                  export by ~85 kW to restore voltage to nominal range.
-                </p>
-              </div>
+            <div className="flex items-center gap-3 bg-red-900/20 border border-red-800/40 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+              <p className="text-sm text-red-300">
+                <span className="font-semibold">{result.violations.length} voltage violation{result.violations.length > 1 ? 's' : ''}</span>
+                {' '}— HIGH_VOLTAGE on {result.violations.map(v => v.name).join(', ')}. Generate OE to curtail.
+              </p>
             </div>
           )}
 
@@ -342,11 +331,6 @@ export default function PowerFlowPage() {
           <div className="card overflow-x-auto">
             <h3 className="text-sm font-semibold text-white mb-4">LV Network Topology</h3>
             <NetworkTree dtId={selectedDtId} result={result} />
-            <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block" /> Normal voltage</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-500 inline-block" /> Warning</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500 inline-block" /> Violation</span>
-            </div>
           </div>
         </>
       )}

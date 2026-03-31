@@ -70,17 +70,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
             <span className="text-sm text-gray-400">Auzance Distribution Network · EDF Réseau</span>
           </div>
-          <div className="flex items-center gap-3">
-            {criticalAlerts.length > 0 && (
-              <div className="flex items-center gap-1.5 bg-red-900/50 text-red-400 px-3 py-1 rounded-full text-xs border border-red-800/50">
-                <Bell className="w-3.5 h-3.5 animate-pulse" />
-                {criticalAlerts.length} Critical
-              </div>
-            )}
-            <div className="text-xs text-gray-500 font-mono">
-              {new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          {criticalAlerts.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-red-900/50 text-red-400 px-3 py-1 rounded-full text-xs border border-red-800/50">
+              <Bell className="w-3.5 h-3.5 animate-pulse" />
+              {criticalAlerts.length} Critical
             </div>
-          </div>
+          )}
         </header>
         <main className="flex-1 overflow-y-auto p-6 bg-gray-950">{children}</main>
       </div>
