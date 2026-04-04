@@ -12,6 +12,7 @@ import PowerFlowPage from './pages/PowerFlowPage'
 import OperatingEnvelopePage from './pages/OperatingEnvelopePage'
 import ForecastPage from './pages/ForecastPage'
 import D4GMessagesPage from './pages/D4GMessagesPage'
+import BaselineFlexPage from './pages/BaselineFlexPage'
 
 class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="/envelope" element={<ProtectedRoute><OperatingEnvelopePage /></ProtectedRoute>} />
         <Route path="/d4g" element={<ProtectedRoute><D4GMessagesPage /></ProtectedRoute>} />
         <Route path="/forecast" element={<ProtectedRoute><ForecastPage /></ProtectedRoute>} />
+        <Route path="/baseline" element={<ProtectedRoute><BaselineFlexPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/network" replace />} />
       </Routes>
     </>

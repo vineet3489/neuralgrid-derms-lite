@@ -1,6 +1,6 @@
 # Neural Grid — L&T Digital Energy Solutions DERMS Platform
-## Product Requirements Document (PRD) v1.3
-**Date:** March 2026
+## Product Requirements Document (PRD) v1.4
+**Date:** April 2026
 **Author:** L&T Digital Energy Solutions — Smart Grid Division
 **Status:** Active Development
 
@@ -8,6 +8,7 @@
 - **v1.1:** CIM-based aggregator exchange (IEC 62325 + IEC 62746-4), Kafka transport, OSM bounding-box area query + congested DT identification, time-series DistFlow dynamic OE.
 - **v1.2:** Full D4G IEC 62746-4 spec compliance — `ReferenceEnergyCurve*_MarketDocument` format, EIC coding scheme (A01), MAW units, PT30M resolution, four Kafka topics, `MessageDocumentHeader`. SSEN IEC MarketDocument formats. Removed FK constraint on `audit_events.user_id`.
 - **v1.3:** Operator Console guided workflow, role-based navigation, D4G quality codes (A04/A06/A03) per OE slot, ETRAA Archive integration, DMS-passthrough forecast model, Simulation Parameters tab, production deployment on Render.com (Docker + PostgreSQL).
+- **v1.4:** Auzances 250 kVA 3-branch reference LV network (BR-A/B/C, 65 households, EV surge scenario). Powsybl OpenLoadFlow integration (`pypowsybl`) replacing pure-Python DistFlow as primary solver (DistFlow retained as fallback). Correct 5-step D4G message sequence (A38 → REC/A26 → A26 → A32 → A16) with A32 Activation detail. DT thermal limit corrected to 225 kW (250 kVA × 0.9 pf). Voltage deviation chart + FlexOffer A26 control panel on Forecast page. Constraint column + A38 badge on Operating Envelope page. New Baseline vs Flex comparison dashboard (§28).
 
 ---
 
@@ -40,6 +41,9 @@
 25. [Forecasting Models *(v1.3)*](#25-forecasting-models-v13)
 26. [Integration Endpoints & ETRAA Archive *(v1.3)*](#26-integration-endpoints--etraa-archive-v13)
 27. [D4G Quality Codes *(v1.3)*](#27-d4g-quality-codes-v13)
+28. [Auzances Demo Network & EV Scenario *(v1.4)*](#28-auzances-demo-network--ev-scenario-v14)
+29. [Powsybl Power Flow Integration *(v1.4)*](#29-powsybl-power-flow-integration-v14)
+30. [Baseline vs Flex Dashboard *(v1.4)*](#30-baseline-vs-flex-dashboard-v14)
 
 ---
 
@@ -124,7 +128,7 @@ HV (132kV/33kV)         MV (11kV)             LV (400V/230V)
 - Database: SQLite (development), PostgreSQL (production)
 - Auth: JWT HS256, 8-hour expiry; DaaS keys: SHA-256 hashed
 - Background: asyncio tasks (simulation, dispatch, forecast, broadcast, SCADA push)
-- Power flow: Pure-Python DistFlow (Baran & Wu) — no numpy dependency
+- Power flow: **Powsybl OpenLoadFlow** (`pypowsybl≥1.3.0`, RTE France) — AC load flow on IIDM network model; falls back to pure-Python **DistFlow (Baran & Wu)** if `pypowsybl` unavailable
 - HTTP client: httpx (async) for external integrations
 
 **Frontend**
@@ -275,6 +279,8 @@ Heat Pump        ──────────▶ Forecasting Engine
 Industrial Load  ──────────▶ Flex Dispatch     ──OE Msg──▶ Flex Markets
                              OE Calculator     ──IEEE2030.5▶ Aggregators
                              Settlement Engine ──Reports──▶ MDM / Billing
+EV Fast Charger  ──────────▶ LV Power Flow     ──A38 OE──▶ SPG (IEC 62746-4 A38)
+                             (Powsybl OpenLF)  ──A32 Act─▶ Aggregator / Vendée Flex
 ```
 
 ---
@@ -414,22 +420,111 @@ LVBus (lv_buses table)
   └── asset_id           → linked DER asset if any
 ```
 
+### 7.6 Auzances 250 kVA Reference Demo Network *(v1.4)*
+
+The demo deployment uses a **3-phase, 3-branch 250 kVA radial LV network** located at `DT-AUZ-001 — Auzances LV Substation` (46.0205°N, 2.4895°E, Creuse, France). This network is used as the primary reference case for DERIM/SSEN demonstrations.
+
+**Transformer:**
+
+| Parameter | Value |
+|---|---|
+| Rating | 250 kVA |
+| HV side | 20 kV |
+| LV side | 400 V (line), 220 V (phase) |
+| Thermal limit | 225 kW (250 × 0.9 pf) |
+| Reverse limit | −90 kW (export headroom) |
+
+**Three LV Branches (star topology from DT secondary):**
+
+| Branch | Phase | Households | Length | Base Load | Cable R | Cable X | Ampacity |
+|---|---|---|---|---|---|---|---|
+| BR-A | A | 21 | 461 m | 98 kW | 0.115 Ω | 0.037 Ω | 300 A |
+| BR-B | B | 34 | 715 m | 129 kW | 0.179 Ω | 0.057 Ω | 300 A |
+| BR-C | C | 10 | 185 m | 68 kW | 0.046 Ω | 0.015 Ω | 200 A |
+
+Cable type: 95 mm² XLPE underground (r = 0.25 Ω/km, x = 0.08 Ω/km).
+
+**EV Surge Scenario (Branch B — 18:00–22:00):**
+
+Three EV fast chargers on Branch B create a thermal congestion event:
+
+| Charger | Location | Power |
+|---|---|---|
+| EVC-B01 | Chemin des Acacias 1 | 120 kW |
+| EVC-B02 | Rue de Bellevue 2 | 110 kW |
+| EVC-B03 | Hameau du Gué 8 | 120 kW |
+| **Total EV surge** | | **350 kW** |
+
+Branch B total during surge: 129 + 350 = **479 kW** = **213% of DT thermal limit**.
+
+**SPG (Service Providing Groups):** One per phase, operated by aggregator *Vendée Flex*:
+
+| SPG | Phase | Consumers | Prosumers | Aggregate kW |
+|---|---|---|---|---|
+| SPG-A | A | 13 | 8 | 60 kW |
+| SPG-B | B | 22 | 12 | 79 kW |
+| SPG-C | C | 6 | 4 | 40 kW |
+
+SPG-B is the **flex activation target** for the EV surge event (A32 Activation, 245 kW curtailment offer at €85/MWh).
+
 ---
 
 ## 8. Power Flow Algorithm
 
-### 8.1 DistFlow (Baran & Wu, 1989)
+Neural Grid uses a **two-tier solver strategy**: Powsybl OpenLoadFlow (AC, primary) with automatic fallback to DistFlow (analytical, secondary).
 
-Neural Grid implements the **DistFlow backward-forward sweep** algorithm for radial LV networks.
+### 8.0 Solver Selection Logic *(v1.4)*
+
+```
+GET /api/v1/lv-network/powsybl-power-flow?ev_surge={bool}
+         │
+         ▼
+  try pypowsybl OpenLoadFlow (AC)
+         │
+         ├─ converged → return results  engine="Powsybl OpenLoadFlow"
+         │
+         └─ ImportError / non-convergence
+                  │
+                  ▼
+          DistFlow (Baran-Wu)           engine="DistFlow (Baran-Wu 1989)"
+```
+
+### 8.1 Powsybl OpenLoadFlow *(v1.4 — primary solver)*
+
+**Reference:** RTE France, *Powsybl* open-source power systems library — https://www.powsybl.org. Python bindings: `pypowsybl≥1.3.0`.
+
+**Why Powsybl over in-house DistFlow as primary?**
+- Full AC load flow (handles PQ/PV buses, reactive power, transformer taps)
+- IIDM (Internal grid model) — IEC-standard network representation
+- OpenLoadFlow solver is validated against commercial tools (PSS/E, PowerFactory)
+- Pre-compiled GraalVM native binary wheels — no JVM dependency on server
+- Recognised by European TSO/DSO audiences (RTE France, Enedis, SSEN)
+
+**Network model built per run:**
+```python
+n = pn.create_empty("auzance-lv-250kva")
+n.create_substations(id="SUB-AUZ", country="FR")
+n.create_voltage_levels(id="VL-LV", nominal_v=400.0, ...)
+# DT secondary = slack bus (voltage source, 400V, angle=0)
+n.create_buses(id="BUS-DT", ...)
+# One end bus per branch: BUS-BR-A, BUS-BR-B, BUS-BR-C
+# One line per branch: LINE-BR-A, LINE-BR-B, LINE-BR-C  (R, X from cable params)
+# One load per branch: LOAD-BR-A, LOAD-BR-B, LOAD-BR-C  (P+jQ)
+result = pp.loadflow.run_ac(n, parameters=parameters)
+```
+
+### 8.2 DistFlow (Baran & Wu, 1989) — fallback solver
+
+Neural Grid retains the **DistFlow backward-forward sweep** algorithm as a reliable fallback for radial LV networks.
 
 **Reference:** M.E. Baran and F.F. Wu, "Network reconfiguration in distribution systems for loss reduction and load balancing," IEEE Trans. Power Delivery, vol. 4, no. 2, pp. 1401–1407, Apr. 1989.
 
-**Why DistFlow over Newton-Raphson or Gauss-Seidel?**
+**Why DistFlow is retained as fallback?**
 - Optimised for radial (tree) topology — O(n) complexity vs. O(n²) for mesh methods
 - Numerically stable for high R/X ratio cables (LV cables have R >> X, which breaks Newton-Raphson convergence)
-- Pure Python implementation — no numpy or LAPACK dependency needed
+- Pure Python implementation — no binary dependency, always available
 
-### 8.2 Algorithm
+### 8.3 DistFlow Algorithm Detail
 
 **Initialisation:**
 ```
@@ -454,7 +549,7 @@ For each branch (i→j) from root to leaf:
 
 **Convergence:** Iterate until max |ΔV| < ε (typically ε = 1e-6 p.u.), usually 3–10 iterations.
 
-### 8.3 Outputs
+### 8.4 Outputs
 
 | Parameter | Unit | Interpretation |
 |---|---|---|
@@ -464,12 +559,22 @@ For each branch (i→j) from root to leaf:
 | Total load P_total | kW | Sum of all bus loads |
 | Total generation Q_total | kW | Sum of all DER outputs |
 
-### 8.4 UK Voltage Limits (ESQCR 2002)
+### 8.5 Voltage Limits
+
+**UK (ESQCR 2002):**
 
 ```
 Normal:    0.95 – 1.05 p.u.  (217.5V – 241.5V)  → Green
 Warning:   0.90 – 0.95 p.u.  (207.0V – 217.5V)  → Amber
 Violation: < 0.90 p.u.        (< 207.0V)         → Red  (statutory limit breach)
+```
+
+**French LV / Auzances demo network (220V phase-to-neutral nominal):**
+
+```
+Normal:    ±6% of 220V  →  207–233V   → Green
+Warning:   ±15% of 220V →  187–253V   → Amber
+Violation: ±25% of 220V →  <165V or >275V → Red
 ```
 
 ---
@@ -617,7 +722,41 @@ If headroom > 0: export headroom available → set export OE limit
 If headroom < 0: import headroom needed → set import OE limit
 ```
 
-### 10.5 Production Upgrade Path
+**DT thermal limits (Auzances demo network):**
+
+| Direction | Limit | Derivation |
+|---|---|---|
+| Forward (import) | **225 kW** | 250 kVA × 0.9 power factor |
+| Reverse (export) | **−90 kW** | Hosting capacity headroom |
+
+### 10.5 Voltage Deviation Forecast *(v1.4)*
+
+The Forecast page computes **per-phase end-of-branch voltage deviation** using the DistFlow formula, plotted as a 24-hour chart alongside the load profile:
+
+```
+ΔV² = 2(R·P + X·Q) / V²_base
+V_end_pu = √max(1.0 − ΔV², 0.01)
+V_end_V  = V_end_pu × 220  (phase-to-neutral nominal)
+```
+
+During the EV surge window (18:00–22:00), Branch B voltage drops to ~0.84 pu (185 V) — a **critical undervoltage** below the ±15% warning band (198 V). The chart shows before/after FlexOffer activation as two overlaid series.
+
+### 10.6 FlexOffer Control Panel *(v1.4)*
+
+The Forecast page includes a **FlexOffer A26 Control Panel** allowing the operator to send an IEC 62746-4 A26 FlexOffer to SPG-B:
+
+| Field | Value |
+|---|---|
+| Target DT | DT-AUZ-001 (locked) |
+| Target SPG | SPG-B — Vendée Flex Phase B |
+| Event type | Thermal overload \| Voltage violation (toggle) |
+| Protocol | IEC 62746-4 A26 |
+| Quantity | 245 kW curtailment |
+| Price | €85/MWh |
+
+On send, the event is logged with ISO timestamp and SPG ID. The voltage deviation chart updates to show the post-flex profile.
+
+### 10.7 Production Upgrade Path
 
 The current engine uses deterministic models with noise injection. Production upgrade would replace with:
 - **LSTM / Transformer** time-series models trained on MDM historical data
@@ -710,24 +849,38 @@ An Operating Envelope is a **time-varying MW limit** (import and/or export) assi
 ```
 1. Forecast                Neural Grid forecasts load + solar for next 24h
    │
-2. Power Flow              DistFlow computes headroom at each DT/CMZ
+2. Power Flow              Powsybl OpenLoadFlow (+ DistFlow fallback) at each DT/CMZ
    │
-3. OE Calculation          headroom → per-asset DOE limits
+3. OE Calculation          headroom → per-asset DOE limits; constraint identified per slot
    │
-4. OE Message              Format as SSEN_IEC MarketDocument or IEEE 2030.5
+4. OE Message (A38)        Format as ReferenceEnergyCurveOperatingEnvelope_MarketDocument
    │
-5. Deliver                 Push to aggregator VTN / Flex Market platform
+5. Deliver                 Push to aggregator SPG / Flex Market platform
    │
-6. Acknowledge             Aggregator ACKs receipt (Acknowledgement_MarketDocument)
+6. REC/A26                 DSO sends Reference Energy Curve (baseline)
    │
-7. Activate                Grid event triggers → Activation_MarketDocument
+7. A26 FlexOffer           SPG returns curtailment offer (kW, price, duration)
    │
-8. Perform                 Assets dispatch → telemetry flows back
+8. A32 Activation          DSO activates offer → Activation_MarketDocument
    │
-9. Measure                 Performance compared to OE limits
+9. Perform                 Assets dispatch → telemetry flows back
    │
-10. Report                 Performance_MarketDocument → DNO / settlement system
+10. A16 Measurement        SPG confirms delivery → MeasurementData_MarketDocument
+   │
+11. Report                 Settlement report → DNO / MDM / billing
 ```
+
+### 12.2a OE Page — Constraint Column & A38 Label *(v1.4)*
+
+The Operating Envelope page shows the OE document type as an **A38** badge (`ReferenceEnergyCurveOperatingEnvelope`). The 48-slot time-series table includes a **Constraint** column identifying the network violation type driving each restricted slot:
+
+| Constraint value | Trigger condition |
+|---|---|
+| `Branch B thermal` | DT-AUZ-001, slots 36–44 (18:00–22:00, EV surge window) |
+| `LV feeder thermal` | DT-AUZ-005 (constrained DT) during daytime hours |
+| `—` | Unconstrained slot |
+
+Constrained rows are highlighted with a red background tint. The export cap for DT-AUZ-001 during the EV surge window is tightened to 90 kW (vs. normal ~175 kW).
 
 ### 12.3 SSEN IEC MarketDocument Format
 
@@ -1076,9 +1229,60 @@ The existing aggregator interface (IEEE 2030.5 + OpenADR) is device-centric. For
 
 **SPG (Service Providing Group)**: the aggregator entity in the D4G model — a legal entity that aggregates DER assets and exchanges flex with the DSO.
 
-### 16.2 D4G IEC 62746-4 — Message Format
+### 16.2 D4G IEC 62746-4 — Correct 5-Step Message Sequence *(v1.4)*
 
-All four document types share the same top-level structure:
+The correct D4G exchange for a flex activation event is a **5-message sequence**, not 4:
+
+```
+Step 1  DSO → SPG   A38  ReferenceEnergyCurveOperatingEnvelope_MarketDocument
+                         (OE limits: forward 225 kW, reverse −90 kW, PT30M, 48 slots)
+        │
+Step 2  DSO → SPG   REC/A26  Reference Energy Curve (BaselineNotification)
+                         (Desired net load shape for next 24h, basis for flex sizing)
+        │
+Step 3  SPG → DSO   A26  ReferenceEnergyCurveFlexOffer_MarketDocument
+                         (SPG-B offers 245 kW curtailment at €85/MWh, 8 slots 18:00–22:00)
+        │
+Step 4  DSO → SPG   A32  Activation_MarketDocument
+                         (DSO accepts and activates the offer; RefOfferMarketDocument.mRID)
+        │
+Step 5  SPG → DSO   A16  MeasurementData_MarketDocument
+                         (Delivery confirmation: actual curtailment, network outcome)
+```
+
+**Key fields on A32 Activation (Step 4):**
+
+```json
+{
+  "mRID": "ACT-DERMS-20260404T175000",
+  "type": "A32",
+  "subject": "Activation",
+  "RefOfferMarketDocument": { "mRID": "FO-SPG-B-20260404T174812" },
+  "sender_MarketParticipant.marketRole.type": "A04",
+  "receiver_MarketParticipant.marketRole.type": "A27",
+  "businessType": "B83",
+  "FlowDirection": "A02",
+  "Period": {
+    "resolution": "PT30M",
+    "Point": [
+      { "position": 1, "quantity_MAW": 0.245 },
+      "... (8 slots, 18:00–22:00)"
+    ]
+  }
+}
+```
+
+| Field | Value | Meaning |
+|---|---|---|
+| `sender...marketRole.type` | `A04` | DSO (Distribution System Operator) |
+| `receiver...marketRole.type` | `A27` | Aggregator / SPG |
+| `businessType` | `B83` | Demand Response |
+| `FlowDirection` | `A02` | Downward flex (load reduction) |
+| `quantity_MAW` | 0.245 | 245 kW in megawatts |
+
+### 16.3 D4G IEC 62746-4 — Message Document Format
+
+All document types share the same top-level structure:
 
 ```json
 {
@@ -1134,14 +1338,15 @@ All four document types share the same top-level structure:
 - `quality: "A06"` = Calculated; `"A04"` = As provided
 - `resolution: "PT30M"` = 30-minute slots (ISO 8601 duration)
 
-### 16.3 Four Document Types
+### 16.4 Five Document Types
 
-| Document | Direction | Kafka Topic | messageType | Point field |
-|---|---|---|---|---|
-| `ReferenceEnergyCurveOperatingEnvelope_MarketDocument` | DSO → SPG | `dso_operating_envelope` | `OperatingEnvelope` | `Max_Quantity` |
-| `ReferenceEnergyCurveFlexOffer_MarketDocument` | SPG → DSO | `flex-offers` | `FlexOffer` | `Quantity` |
-| `ReferenceEnergyCurveBaselineNotification_MarketDocument` | DSO → SPG | `baseline_24h` | `BaselineNotification` | `Baseline_Quantity` |
-| `ReferenceEnergyCurveHistoricalData_MarketDocument` | DSO → SPG | `historical_data` | `HistoricalData` | `Historical_Quantity` |
+| Step | Document | Direction | Msg Type | Kafka Topic | Point field |
+|---|---|---|---|---|---|
+| 1 | `ReferenceEnergyCurveOperatingEnvelope_MarketDocument` | DSO → SPG | **A38** | `dso_operating_envelope` | `Max_Quantity` |
+| 2 | `ReferenceEnergyCurveBaselineNotification_MarketDocument` | DSO → SPG | REC/A26 | `baseline_24h` | `Baseline_Quantity` |
+| 3 | `ReferenceEnergyCurveFlexOffer_MarketDocument` | SPG → DSO | **A26** | `flex-offers` | `Quantity` |
+| 4 | `Activation_MarketDocument` | DSO → SPG | **A32** | `activations` | `quantity_MAW` |
+| 5 | `MeasurementData_MarketDocument` | SPG → DSO | **A16** | `historical_data` | `Historical_Quantity` |
 
 **OperatingEnvelope**: DSO tells SPG the maximum export and import limits at each CMZ for each 30-min slot. Two Series per document — one UP (export ceiling) and one DOWN (import ceiling).
 
@@ -1439,7 +1644,7 @@ Full interactive documentation: `http://localhost:8080/api/docs`
 | Assets | 5 | `/assets` CRUD, `/assets/{id}/telemetry` |
 | Dispatch | 6 | `/events` CRUD, `/events/{id}/dispatch`, `/events/{id}/oe-messages/formatted` |
 | Forecasting | 8 | `/forecasting/all`, `/forecasting/lv-feeder/{id}`, `/forecasting/oe-headroom/{cmz_id}` |
-| LV Network | 4 | `/lv-network/dt/{id}`, `/lv-network/dt/{id}/power-flow` |
+| LV Network | 5 | `/lv-network/dt/{id}`, `/lv-network/dt/{id}/power-flow`, `/lv-network/powsybl-power-flow?ev_surge={bool}` |
 | Programs | 4 | `/programs` CRUD |
 | Contracts | 5 | `/contracts` CRUD, `/contracts/{id}/activate` |
 | Optimization | 4 | `/optimization/dr-dispatch`, `/optimization/recalculate-does` |
@@ -1462,6 +1667,7 @@ Full interactive documentation: `http://localhost:8080/api/docs`
 | API response time (P95) | < 200 ms | ✓ (SQLite, no network calls in SIMULATION) |
 | WebSocket broadcast latency | < 1 s | ✓ (5s interval, asyncio) |
 | DistFlow convergence time | < 100 ms for 50-bus network | ✓ |
+| Powsybl OpenLoadFlow | < 2 s for 3-branch IIDM network | ✓ (pre-compiled GraalVM binary) |
 | Forecast generation time | < 5 s for 48h × 30min | ✓ |
 | SCADA push interval | Configurable 10–3600 s | ✓ (default 60s) |
 | Multi-deployment isolation | Hard isolation per X-Deployment-ID header | ✓ |
@@ -1660,7 +1866,141 @@ Aggregators must honour the quality code when deciding how to respond:
 21. **react-leaflet v5** — https://react-leaflet.js.org
 22. **Leaflet.js** — https://leafletjs.com
 23. **Recharts** — https://recharts.org
+24. **Powsybl / pypowsybl** — https://www.powsybl.org / https://pypowsybl.readthedocs.io
 
 ---
 
-*Document generated from Neural Grid v1.0 platform codebase. For technical questions contact the L&T Smart Grid Division.*
+## 28. Auzances Demo Network & EV Scenario *(v1.4)*
+
+This section consolidates the full reference scenario used for DERIM/SSEN demonstrations.
+
+### 28.1 Scenario Narrative
+
+**Event:** Three EV fast chargers on Branch B (18:00–22:00)
+**Consequence:** Branch B load surges from 129 kW to 479 kW — 213% of DT thermal limit
+**Voltage impact:** Branch B end voltage drops to ~185 V (0.84 pu) — critical undervoltage
+**Resolution:** DSO activates FlexOffer A26 from SPG-B (Vendée Flex) — 245 kW curtailment at €85/MWh
+
+### 28.2 Full D4G Exchange Sequence
+
+```
+Time         Event
+─────────    ─────────────────────────────────────────────────────────────
+17:00        DSO generates OE (A38) for DT-AUZ-001
+             → export cap tightened to 90 kW for slots 36–44 (18:00–22:00)
+             → constraint: "Branch B thermal"
+
+17:10        DSO sends Reference Energy Curve (REC/A26) to SPG-B
+             → baseline: 129 kW, desired: ≤225 kW
+
+17:48        SPG-B responds with FlexOffer A26
+             → 245 kW curtailment, 8 × PT30M slots, €85/MWh
+             → FlexOffer mRID: FO-SPG-B-20260404T174812
+
+17:50        DSO sends A32 Activation
+             → accepts FlexOffer, activates curtailment 18:00–22:00
+
+22:15        SPG-B sends A16 MeasurementData
+             → actual curtailment: 238 kW (97% compliance)
+             → Branch B voltage restored: 207 V (0.94 pu)
+             → DT loading: 241 kW (107% DT limit — significant improvement)
+```
+
+### 28.3 Settlement Outcome
+
+| Metric | Baseline | Post-Flex | Delta |
+|---|---|---|---|
+| Peak Branch B load | 479 kW | 234 kW | −245 kW (−51%) |
+| DT loading | 213% | 104% | −109 ppt |
+| Min voltage (Branch B end) | 185 V (0.84 pu) | 207 V (0.94 pu) | +22 V |
+| Energy curtailed | — | 0.98 MWh | — |
+| Settlement cost | — | €83.30 | @€85/MWh |
+
+---
+
+## 29. Powsybl Power Flow Integration *(v1.4)*
+
+### 29.1 Endpoint
+
+```
+GET /api/v1/lv-network/powsybl-power-flow?ev_surge={true|false}
+```
+
+**Response schema:**
+```json
+{
+  "engine": "Powsybl OpenLoadFlow | DistFlow (Baran-Wu 1989)",
+  "converged": true,
+  "scenario": "ev_surge | normal",
+  "dt": {
+    "id": "DT-AUZ-001",
+    "rating_kva": 250,
+    "thermal_limit_kw": 225,
+    "total_load_kw": 295.1,
+    "loading_pct": 131.2,
+    "status": "CRITICAL"
+  },
+  "branches": [
+    {
+      "branch_id": "BR-B",
+      "phase": "B",
+      "total_load_kw": 479.0,
+      "v_end_pu": 0.841,
+      "v_end_v": 336.4,
+      "i_a": 692.4,
+      "loading_pct": 230.8,
+      "voltage_status": "CRITICAL",
+      "thermal_status": "CRITICAL",
+      "ev_chargers": [...]
+    }
+  ],
+  "violations": [...],
+  "ev_surge": true
+}
+```
+
+### 29.2 Dependency
+
+`pypowsybl>=1.3.0` — pre-compiled GraalVM native binary wheels (no JVM required). Ships compiled for Linux x86_64, macOS arm64, Windows x86_64. Install via `pip install pypowsybl`. Size: ~150 MB.
+
+If unavailable at runtime, the endpoint automatically falls back to the built-in DistFlow solver. The `engine` field in the response indicates which solver was used.
+
+---
+
+## 30. Baseline vs Flex Dashboard *(v1.4)*
+
+### 30.1 Purpose
+
+Provides a before/after comparison of the EV surge flex activation event, showing the quantified impact of D4G FlexOffer A26 on Branch B network performance.
+
+### 30.2 Route & Navigation
+
+- **Route:** `/baseline`
+- **Nav label:** Baseline vs Flex
+- **Icon:** `BarChart2` (Lucide)
+
+### 30.3 Dashboard Sections
+
+**KPI Cards (4):**
+
+| Card | Metric | Value (demo) |
+|---|---|---|
+| Peak Load Reduction | Baseline vs post-flex peak | −245 kW (−51%) |
+| Thermal Headroom Gained | kW freed on DT thermal limit | +245 kW |
+| Voltage Improvement | Min voltage gain as % of nominal | +10.0% pu |
+| Settlement Cost | Total flex activation cost | €83.30 |
+
+**24-Hour Comparison Chart (togglable):**
+- *Load Profile* tab: Branch B baseline (red) vs post-flex (green) over 24h, DT thermal limit reference line, EV surge window highlighted
+- *Voltage Profile* tab: End-of-branch voltage before/after, ±15% warning bands as reference lines
+
+**SPG Curtailment Chart:** Bar chart per SPG (SPG-A/B/C). SPG-B = 245 kW, others = 0. Settlement cost displayed per SPG.
+
+**Settlement Report Panel:**
+- Summary: duration (4h), energy curtailed (0.98 MWh), total cost (€83.30), settlement basis (IEC 62746-4 A16)
+- Outcome badges: thermal resolved / voltage restored / residual overage warning
+- Expandable 8-slot table: position, time, curtailment kW, energy MWh, cost €
+
+---
+
+*Document updated for Neural Grid v1.4 — April 2026. For technical questions contact the L&T Smart Grid Division.*

@@ -9,7 +9,13 @@ import {
 } from 'recharts'
 import clsx from 'clsx'
 
-// ─── Message thread data ──────────────────────────────────────────────────────
+// ─── IEC 62746-4 D4G Message Thread ──────────────────────────────────────────
+// Correct 5-step sequence per doc:
+//  1. A38  — DSO → SPG   Operating Envelope
+//  2. A26  — DSO → SPG   Reference Energy Curve (desired net load shape)
+//  3. A26  — SPG → DSO   FlexOffer (available volume, price, window)
+//  4. A32  — DSO → SPG   Activation (instructs SPG to deliver the flex)
+//  5. A16  — SPG → DSO   MeasurementData (delivery confirmation)
 
 type MsgDirection = 'outbound' | 'inbound'
 type MsgStatus = 'sent' | 'received' | 'acknowledged' | 'pending'
@@ -29,190 +35,198 @@ const MESSAGE_THREAD: D4GMessage[] = [
   {
     id: 'MSG-001',
     direction: 'outbound',
-    type: 'OperatingEnvelope_MarketDocument',
-    typeLabel: 'Operating Envelope',
-    timestamp: '14:32:01',
+    type: 'ReferenceEnergyCurveOperatingEnvelope_MarketDocument',
+    typeLabel: 'A38 — Operating Envelope',
+    timestamp: '17:48:02',
     status: 'sent',
-    summary: 'OE sent for DT-AUZ-005 · Export cap 120 kW · 48 slots · 11:00–17:00',
+    summary: 'OE dispatched to SPG-B · Phase B EV constraint · max export 105 kW · max import 245 kW · window 18:00–22:00',
     payload: {
-      mRID: 'OE-DT-AUZ-005-20260326T143201',
+      mRID: 'OE-DT-AUZ-001-BR-B-20260404T174802',
       type: 'A44',
       standard: 'IEC 62746-4',
-      receiver: 'd4g-aggregator-auzance',
-      slots: 48,
-      resolution: 'PT30M',
-      export_cap_kw: 120,
-      import_cap_kw: 50,
-      window: '11:00–17:00',
+      'process.processType': 'Z01',
+      'sender_MarketParticipant.mRID': 'neuralgrid-derms',
+      'sender_MarketParticipant.marketRole.type': 'A04',
+      'receiver_MarketParticipant.mRID': 'spg-b-vendee-flex',
+      'receiver_MarketParticipant.marketRole.type': 'A27',
+      Series: [{
+        mRID: 'SERIES-BR-B-001',
+        businessType: 'A96',
+        asset: { mRID: 'DT-AUZ-001-BR-B', name: 'Branch B (Phase B) — 34 households, 715m' },
+        Period: {
+          timeInterval: { start: '2026-04-04T18:00:00Z', end: '2026-04-04T22:00:00Z' },
+          resolution: 'PT30M',
+          Point: [
+            { position: 1, quantity_Minimum: -245.0, quantity_Maximum: 105.0, qualityCode: 'A06' },
+            { position: 2, quantity_Minimum: -245.0, quantity_Maximum: 105.0, qualityCode: 'A06' },
+            // ... 6 more PT30M slots (08 total for 18:00–22:00)
+          ],
+        },
+      }],
     },
   },
   {
     id: 'MSG-002',
-    direction: 'inbound',
-    type: 'BaselineNotification_MarketDocument',
-    typeLabel: 'Baseline Report',
-    timestamp: '14:32:04',
-    status: 'received',
-    summary: 'D4G reports current baseline: Bois-Rond Solar 285.6 kW · BESS 142.8 kW (charging)',
+    direction: 'outbound',
+    type: 'ReferenceEnergyCurve_MarketDocument',
+    typeLabel: 'REC/A26 — Reference Energy Curve',
+    timestamp: '17:48:05',
+    status: 'sent',
+    summary: 'DSO sends desired net load shape for Branch B · baseline 129 kW · target ceiling 225 kW (DT limit)',
     payload: {
-      mRID: 'BL-D4G-AUZ-20260326T143204',
-      correlationID: 'OE-DT-AUZ-005-20260326T143201',
-      type: 'BaselineNotification',
+      mRID: 'REC-DT-AUZ-001-20260404T174805',
+      type: 'A26',
       standard: 'IEC 62746-4',
-      reportedAt: '14:32:04',
-      assets: [
-        { assetID: 'AST-AUZ-009', name: 'Bois-Rond Solar Farm', baseline_kw: 285.6, method: 'HIGH_5_OF_10' },
-        { assetID: 'AST-AUZ-010', name: 'Bois-Rond BESS', baseline_kw: -142.8, method: 'SMART_BASELINE', soc_pct: 89 },
-      ],
+      correlationID: 'OE-DT-AUZ-001-BR-B-20260404T174802',
+      'sender_MarketParticipant.marketRole.type': 'A04',
+      'receiver_MarketParticipant.marketRole.type': 'A27',
+      note: 'DSO desired net load shape — EV charging to remain within DT thermal limit',
+      Series: [{
+        businessType: 'A96',
+        Period: {
+          timeInterval: { start: '2026-04-04T18:00:00Z', end: '2026-04-04T22:00:00Z' },
+          resolution: 'PT30M',
+          Point: [
+            { position: 1, desiredNetLoad_kW: 129.0 },
+            { position: 2, desiredNetLoad_kW: 129.0 },
+            // DSO target: maintain 129 kW baseline, not 479 kW with uncontrolled EV
+          ],
+        },
+      }],
     },
   },
   {
     id: 'MSG-003',
     direction: 'inbound',
-    type: 'FlexOffer_MarketDocument',
-    typeLabel: 'Flex Availability',
-    timestamp: '14:32:06',
+    type: 'ReserveBidMarketDocument',
+    typeLabel: 'A26 — FlexOffer',
+    timestamp: '17:48:12',
     status: 'received',
-    summary: 'D4G offers 240 kW flex · Solar curtail 165 kW · BESS reduce 75 kW',
+    summary: 'SPG-B offers 245 kW EV curtailment · 12 prosumers · €85/MWh · window 18:00–22:00 · response in 5 min',
     payload: {
-      mRID: 'FO-D4G-AUZ-20260326T143206',
-      correlationID: 'OE-DT-AUZ-005-20260326T143201',
-      type: 'ReserveBidMarketDocument',
-      standard: 'IEC 62325-301 A26',
-      totalFlex_kw: 240,
+      mRID: 'FO-SPG-B-20260404T174812',
+      type: 'A26',
+      standard: 'IEC 62325-301',
+      correlationID: 'OE-DT-AUZ-001-BR-B-20260404T174802',
+      'sender_MarketParticipant.mRID': 'spg-b-vendee-flex',
+      'sender_MarketParticipant.marketRole.type': 'A27',
+      'receiver_MarketParticipant.marketRole.type': 'A04',
+      businessType: 'B83',
+      flexType: 'EV_CHARGING_CURTAILMENT',
+      totalFlex_kW: 245,
+      price_EUR_per_MWh: 85.0,
+      responseTime_min: 5,
+      activationWindow: '2026-04-04T18:00:00Z / 2026-04-04T22:00:00Z',
       assets: [
-        { assetID: 'AST-AUZ-009', name: 'Bois-Rond Solar Farm', availableFlex_kw: 165, currentGen_kw: 285.6, canCurtailTo_kw: 120, responseTime_min: 2 },
-        { assetID: 'AST-AUZ-010', name: 'Bois-Rond BESS', availableFlex_kw: 75, currentGen_kw: 142.8, canCurtailTo_kw: 67.8, responseTime_min: 1 },
+        { assetID: 'EVC-B01', name: 'Chemin des Acacias 1', currentLoad_kW: 120, curtailTo_kW: 0, availableFlex_kW: 120 },
+        { assetID: 'EVC-B02', name: 'Rue de Bellevue 2',    currentLoad_kW: 110, curtailTo_kW: 5, availableFlex_kW: 105 },
+        { assetID: 'EVC-B03', name: 'Hameau du Gué 8',      currentLoad_kW: 120, curtailTo_kW: 100, availableFlex_kW: 20 },
       ],
+      Period: {
+        resolution: 'PT30M',
+        Points: [
+          { position: 1, quantity_MAW: 0.245, price_EUR_per_MWh: 85.0 },
+          // ... 7 more slots
+        ],
+      },
     },
   },
   {
     id: 'MSG-004',
-    direction: 'inbound',
-    type: 'DERGroupStatus_MarketDocument',
-    typeLabel: 'Acknowledgement',
-    timestamp: '14:32:09',
-    status: 'acknowledged',
-    summary: 'D4G acknowledges OE · All assets notified · Curtailment will begin at 11:00',
+    direction: 'outbound',
+    type: 'ActivationMarketDocument',
+    typeLabel: 'A32 — Activation',
+    timestamp: '17:50:00',
+    status: 'sent',
+    summary: 'DERIM activates flex: curtail 245 kW EV load on Branch B · FlowDirection A02 · businessType B83 · effective 18:00',
     payload: {
-      mRID: 'ACK-D4G-AUZ-20260326T143209',
-      correlationID: 'OE-DT-AUZ-005-20260326T143201',
-      status: 'ACKNOWLEDGED',
-      committedCurtailment_kw: 240,
-      scheduledStart: '11:00',
-      assets: [
-        { assetID: 'AST-AUZ-009', status: 'NOTIFIED', committedLimit_kw: 120 },
-        { assetID: 'AST-AUZ-010', status: 'NOTIFIED', committedLimit_kw: 67.8 },
-      ],
+      mRID: 'ACT-DERMS-20260404T175000',
+      type: 'A32',
+      subject: 'Activation',
+      standard: 'IEC 62325-301',
+      RefOfferMarketDocument: { mRID: 'FO-SPG-B-20260404T174812' },
+      'sender_MarketParticipant.mRID': 'neuralgrid-derms',
+      'sender_MarketParticipant.marketRole.type': 'A04',
+      'receiver_MarketParticipant.mRID': 'spg-b-vendee-flex',
+      'receiver_MarketParticipant.marketRole.type': 'A27',
+      businessType: 'B83',
+      FlowDirection: 'A02',
+      activationStatus: 'ACCEPTED',
+      Period: {
+        timeInterval: { start: '2026-04-04T18:00:00Z', end: '2026-04-04T22:00:00Z' },
+        resolution: 'PT30M',
+        Point: [
+          { position: 1, quantity_MAW: 0.245 },
+          { position: 2, quantity_MAW: 0.245 },
+          { position: 3, quantity_MAW: 0.245 },
+          { position: 4, quantity_MAW: 0.245 },
+          { position: 5, quantity_MAW: 0.231 },
+          { position: 6, quantity_MAW: 0.238 },
+          { position: 7, quantity_MAW: 0.245 },
+          { position: 8, quantity_MAW: 0.240 },
+        ],
+      },
+      instruction: 'Reduce EV charger load on Branch B to within OE limits. Solar/BESS prosumers unaffected.',
     },
   },
   {
     id: 'MSG-005',
     direction: 'inbound',
-    type: 'Telemetry_15min',
-    typeLabel: 'Telemetry (11:00)',
-    timestamp: '11:00:32',
+    type: 'MeasurementData_MarketDocument',
+    typeLabel: 'A16 — MeasurementData',
+    timestamp: '22:02:14',
     status: 'received',
-    summary: 'Event started · Solar 118.4 kW ✓ · BESS 65.2 kW ✓ · Voltage recovering 1.091→1.052 pu',
+    summary: 'Delivery confirmed: 231 kW avg curtailed (94.2%) · Branch B voltage recovered · 3 EV sessions managed',
     payload: {
-      timestamp: '11:00:32',
-      eventRef: 'EVT-AUZ-001',
+      mRID: 'MD-SPG-B-20260404T220214',
+      type: 'A16',
+      standard: 'IEC 62746-4',
+      correlationID: 'ACT-DERMS-20260404T175000',
+      'sender_MarketParticipant.mRID': 'spg-b-vendee-flex',
+      'sender_MarketParticipant.marketRole.type': 'A27',
+      activationPeriod: '2026-04-04T18:00:00Z / 2026-04-04T22:00:00Z',
+      deliveryPct: 94.2,
+      metered_kWh: 924.0,
+      committed_kWh: 980.0,
       assets: [
-        { assetID: 'AST-AUZ-009', current_kw: 118.4, target_kw: 120, voltage_pu: 1.052, withinDOE: true },
-        { assetID: 'AST-AUZ-010', current_kw: 65.2, target_kw: 67.8, voltage_pu: 1.049, withinDOE: true },
+        { assetID: 'EVC-B01', curtailed_kWh: 480.0, committedFlex_kWh: 480.0, deliveryPct: 100.0, sessionEnd: '21:52' },
+        { assetID: 'EVC-B02', curtailed_kWh: 396.0, committedFlex_kWh: 420.0, deliveryPct: 94.3, sessionEnd: '22:00' },
+        { assetID: 'EVC-B03', curtailed_kWh: 48.0,  committedFlex_kWh: 80.0,  deliveryPct: 60.0, note: 'Driver override at 20:30' },
       ],
-      dtVoltage_pu: 1.048,
-      dtLoading_pct: 62,
-    },
-  },
-  {
-    id: 'MSG-006',
-    direction: 'inbound',
-    type: 'Telemetry_15min',
-    typeLabel: 'Telemetry (11:15)',
-    timestamp: '11:15:31',
-    status: 'received',
-    summary: 'Mid-event telemetry · Solar 121.8 kW (slightly over) · BESS 66.9 kW ✓',
-    payload: {
-      timestamp: '11:15:31',
-      assets: [
-        { assetID: 'AST-AUZ-009', current_kw: 121.8, target_kw: 120, voltage_pu: 1.054, withinDOE: false, note: 'Marginally over by 1.8 kW' },
-        { assetID: 'AST-AUZ-010', current_kw: 66.9, target_kw: 67.8, voltage_pu: 1.051, withinDOE: true },
-      ],
-      dtVoltage_pu: 1.051,
-      dtLoading_pct: 64,
-    },
-  },
-  {
-    id: 'MSG-007',
-    direction: 'inbound',
-    type: 'PerformanceReport_MarketDocument',
-    typeLabel: 'Performance Report',
-    timestamp: '17:02:14',
-    status: 'received',
-    summary: 'Event complete · 360 min · Avg delivery 96.4% · 144 kWh curtailed · Penalty: 0',
-    payload: {
-      mRID: 'PR-D4G-AUZ-20260326T170214',
-      eventRef: 'EVT-AUZ-001',
-      eventWindow: '11:00–17:00',
-      durationMin: 360,
-      totalCurtailed_kWh: 144.2,
-      committed_kWh: 149.6,
-      deliveryPct: 96.4,
-      penalty: 'NONE',
-      assets: [
-        { assetID: 'AST-AUZ-009', committed_kWh: 99.0, delivered_kWh: 95.8, deliveryPct: 96.8 },
-        { assetID: 'AST-AUZ-010', committed_kWh: 50.6, delivered_kWh: 48.4, deliveryPct: 95.7 },
-      ],
-    },
-  },
-  {
-    id: 'MSG-008',
-    direction: 'outbound',
-    type: 'SettlementAck_MarketDocument',
-    typeLabel: 'Settlement Acknowledgement',
-    timestamp: '17:05:00',
-    status: 'sent',
-    summary: 'DSO acknowledges performance · Payment will be processed · 96.4% delivery confirmed',
-    payload: {
-      mRID: 'SA-DERMS-AUZ-20260326T170500',
-      correlationID: 'PR-D4G-AUZ-20260326T170214',
-      deliveryConfirmed_pct: 96.4,
-      curtailment_kWh: 144.2,
-      availabilityPayment: 'Pending settlement calculation',
-      utilisationPayment: 'Pending settlement calculation',
-      penalty: 0,
+      networkOutcome: {
+        branchB_peakLoadBefore_kW: 479,
+        branchB_peakLoadAfter_kW: 234,
+        dtLoading_pct_before: 213,
+        dtLoading_pct_after: 104,
+        voltageRecovery: 'Phase B end-of-feeder: 0.894 pu → 0.963 pu',
+      },
     },
   },
 ]
 
-// ─── Performance data ─────────────────────────────────────────────────────────
+// ─── Performance data (EV scenario 18:00–22:00) ───────────────────────────────
 
 const PERFORMANCE_DATA = [
-  { slot: '11:00', committed: 187.8, delivered: 183.6, voltage: 1.048 },
-  { slot: '11:30', committed: 187.8, delivered: 188.7, voltage: 1.051 },
-  { slot: '12:00', committed: 187.8, delivered: 185.2, voltage: 1.049 },
-  { slot: '12:30', committed: 187.8, delivered: 190.1, voltage: 1.052 },
-  { slot: '13:00', committed: 187.8, delivered: 184.9, voltage: 1.050 },
-  { slot: '13:30', committed: 187.8, delivered: 179.3, voltage: 1.047 },
-  { slot: '14:00', committed: 187.8, delivered: 186.2, voltage: 1.049 },
-  { slot: '14:30', committed: 187.8, delivered: 191.4, voltage: 1.053 },
-  { slot: '15:00', committed: 187.8, delivered: 185.8, voltage: 1.048 },
-  { slot: '15:30', committed: 187.8, delivered: 182.1, voltage: 1.046 },
-  { slot: '16:00', committed: 187.8, delivered: 188.3, voltage: 1.050 },
-  { slot: '16:30', committed: 187.8, delivered: 183.9, voltage: 1.047 },
+  { slot: '18:00', committed: 245, delivered: 243, loading_pct: 105 },
+  { slot: '18:30', committed: 245, delivered: 248, loading_pct: 107 },
+  { slot: '19:00', committed: 245, delivered: 241, loading_pct: 102 },
+  { slot: '19:30', committed: 245, delivered: 239, loading_pct: 103 },
+  { slot: '20:00', committed: 245, delivered: 240, loading_pct: 104 },
+  { slot: '20:30', committed: 245, delivered: 196, loading_pct: 114 },  // driver override
+  { slot: '21:00', committed: 245, delivered: 241, loading_pct: 102 },
+  { slot: '21:30', committed: 245, delivered: 243, loading_pct: 103 },
 ]
 
 const ASSET_PERFORMANCE = [
-  { name: 'Bois-Rond Solar', committed: 99.0, delivered: 95.8, pct: 96.8 },
-  { name: 'Bois-Rond BESS', committed: 50.6, delivered: 48.4, pct: 95.7 },
+  { name: 'EV Charger 1 (Acacias)', committed: 480, delivered: 480, pct: 100.0 },
+  { name: 'EV Charger 2 (Bellevue)', committed: 420, delivered: 396, pct: 94.3 },
+  { name: 'EV Charger 3 (Hameau du Gué)', committed: 80, delivered: 48, pct: 60.0 },
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// outbound = DSO → D4G (indigo), inbound = D4G → DSO (teal), telemetry = gray
 function msgTagClass(direction: MsgDirection, typeLabel: string): string {
-  if (typeLabel.startsWith('Telemetry')) return 'bg-gray-700/60 text-gray-300 border-gray-600/50'
+  if (typeLabel.startsWith('A16')) return 'bg-gray-700/60 text-gray-300 border-gray-600/50'
   if (direction === 'outbound') return 'bg-indigo-900/50 text-indigo-300 border-indigo-700/40'
   return 'bg-teal-900/50 text-teal-300 border-teal-700/40'
 }
@@ -239,16 +253,12 @@ function JsonHighlight({ json }: { json: unknown }) {
   )
 }
 
-// Delay (ms) before each message appears during simulation
 const MSG_DELAYS: Record<string, number> = {
-  'MSG-001': 400,   // OE sent immediately
-  'MSG-002': 1200,  // Baseline report — aggregator responds in ~1s
-  'MSG-003': 800,   // Flex offer follows quickly
-  'MSG-004': 600,   // ACK
-  'MSG-005': 2000,  // Telemetry arrives at event start (simulated gap)
-  'MSG-006': 1500,  // 15-min telemetry
-  'MSG-007': 2500,  // Performance report — end of event
-  'MSG-008': 800,   // Settlement ACK
+  'MSG-001': 500,   // A38 OE sent
+  'MSG-002': 600,   // REC/A26 follows immediately
+  'MSG-003': 1800,  // SPG-B processes and responds with FlexOffer (~10s)
+  'MSG-004': 1200,  // DSO reviews and activates
+  'MSG-005': 2500,  // MeasurementData arrives after event ends
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -257,7 +267,6 @@ export default function D4GMessagesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<'thread' | 'live' | 'performance'>('thread')
 
-  // Simulation state
   const [liveMessages, setLiveMessages] = useState<D4GMessage[]>([])
   const [simRunning, setSimRunning] = useState(false)
   const [simDone, setSimDone] = useState(false)
@@ -273,13 +282,15 @@ export default function D4GMessagesPage() {
     for (const msg of MESSAGE_THREAD) {
       if (!simRef.current) break
       const delay = MSG_DELAYS[msg.id] ?? 1000
-      // Show "awaiting…" indicator
       setPendingLabel(msg.direction === 'outbound' ? `Sending ${msg.typeLabel}…` : `Awaiting ${msg.typeLabel}…`)
       await new Promise((r) => setTimeout(r, delay))
       if (!simRef.current) break
-      setLiveMessages((prev) => [...prev, { ...msg, timestamp: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }])
+      setLiveMessages((prev) => [...prev, {
+        ...msg,
+        timestamp: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      }])
       setPendingLabel(null)
-      await new Promise((r) => setTimeout(r, 200)) // brief gap between messages
+      await new Promise((r) => setTimeout(r, 200))
     }
     setPendingLabel(null)
     setSimRunning(false)
@@ -299,160 +310,132 @@ export default function D4GMessagesPage() {
   const totalCommitted = ASSET_PERFORMANCE.reduce((s, a) => s + a.committed, 0)
   const overallPct = ((totalDelivered / totalCommitted) * 100).toFixed(1)
 
+  const LIFECYCLE_STEPS = [
+    { label: 'A38 OE',      color: 'bg-indigo-500' },
+    { label: 'REC/A26',     color: 'bg-blue-500' },
+    { label: 'A26 Offer',   color: 'bg-teal-500' },
+    { label: 'A32 Activate',color: 'bg-violet-500' },
+    { label: 'A16 Measure', color: 'bg-gray-500' },
+  ]
+
+  const renderMessages = (msgs: D4GMessage[]) => msgs.map((msg) => {
+    const isExpanded = expandedId === msg.id
+    const tagCls = msgTagClass(msg.direction, msg.typeLabel)
+    const isInbound = msg.direction === 'inbound'
+    return (
+      <div
+        key={msg.id}
+        className={clsx(
+          'rounded-xl border transition-all',
+          isInbound ? 'border-gray-700/60 bg-gray-800/40' : 'border-indigo-900/40 bg-indigo-950/30',
+        )}
+      >
+        <div className="flex items-start gap-3 p-3.5 cursor-pointer"
+          onClick={() => setExpandedId(isExpanded ? null : msg.id)}>
+          <div className={clsx(
+            'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5',
+            isInbound ? 'bg-teal-900/60' : 'bg-indigo-900/60'
+          )}>
+            {isInbound
+              ? <ArrowDownLeft className="w-3.5 h-3.5 text-teal-400" />
+              : <ArrowUpRight className="w-3.5 h-3.5 text-indigo-400" />
+            }
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border', tagCls)}>
+                {msg.typeLabel}
+              </span>
+              <span className="text-xs text-gray-500 font-mono">{msg.timestamp}</span>
+              <span className={clsx(
+                'text-[10px] px-1.5 py-0.5 rounded font-medium',
+                msg.status === 'acknowledged' ? 'bg-green-900/40 text-green-400'
+                : msg.status === 'sent' ? 'bg-indigo-900/40 text-indigo-400'
+                : 'bg-gray-800 text-gray-400'
+              )}>
+                {msg.status === 'sent' ? 'SENT' : msg.status === 'received' ? 'RECEIVED' : msg.status.toUpperCase()}
+              </span>
+              <span className="text-[10px] text-gray-600 font-mono ml-auto hidden sm:block">
+                {isInbound ? 'SPG-B → DSO' : 'DSO → SPG-B'}
+              </span>
+            </div>
+            <p className="text-xs text-gray-300 mt-1 leading-relaxed">{msg.summary}</p>
+          </div>
+          <ChevronDown className={clsx('w-4 h-4 text-gray-500 flex-shrink-0 transition-transform mt-1', isExpanded && 'rotate-180')} />
+        </div>
+        {isExpanded && (
+          <div className="border-t border-gray-700/50 mx-3.5 mb-3.5 pt-3">
+            <div className="text-[10px] text-gray-500 mb-1.5 font-medium uppercase tracking-wide">
+              Message Payload — {msg.type}
+            </div>
+            <div className="bg-gray-900/80 rounded-lg p-3 max-h-64 overflow-y-auto">
+              <JsonHighlight json={msg.payload} />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  })
+
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">D4G Messages</h1>
-          <p className="text-sm text-gray-400 mt-0.5">EVT-AUZ-001 · DT-AUZ-005 · IEC 62746-4</p>
+          <p className="text-sm text-gray-400 mt-0.5">
+            EVT-AUZ-001 · DT-AUZ-001 Branch B · IEC 62746-4 · A38→A26→A26→A32→A16
+          </p>
         </div>
         <div className="flex gap-1 bg-gray-800 rounded-lg p-1">
-          <button
-            onClick={() => setActiveView('thread')}
+          <button onClick={() => setActiveView('thread')}
             className={clsx('px-3 py-1.5 rounded text-xs font-medium transition-colors flex items-center gap-1.5',
-              activeView === 'thread' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200')}
-          >
-            <ArrowDownLeft className="w-3.5 h-3.5" />
-            Thread
+              activeView === 'thread' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200')}>
+            <ArrowDownLeft className="w-3.5 h-3.5" /> Thread
           </button>
-          <button
-            onClick={() => setActiveView('live')}
+          <button onClick={() => setActiveView('live')}
             className={clsx('px-3 py-1.5 rounded text-xs font-medium transition-colors flex items-center gap-1.5',
-              activeView === 'live' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200')}
-          >
-            <Play className="w-3.5 h-3.5" />
-            Live Sim
+              activeView === 'live' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200')}>
+            <Play className="w-3.5 h-3.5" /> Live Sim
           </button>
-          <button
-            onClick={() => setActiveView('performance')}
+          <button onClick={() => setActiveView('performance')}
             className={clsx('px-3 py-1.5 rounded text-xs font-medium transition-colors flex items-center gap-1.5',
-              activeView === 'performance' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200')}
-          >
-            <BarChart2 className="w-3.5 h-3.5" />
-            Performance
+              activeView === 'performance' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200')}>
+            <BarChart2 className="w-3.5 h-3.5" /> Performance
           </button>
         </div>
       </div>
 
-      {/* ── Message Thread view ──────────────────────────────────────────────── */}
+      {/* ── Thread view ──────────────────────────────────────────────────────── */}
       {activeView === 'thread' && (
         <>
-          {/* Lifecycle legend */}
+          {/* 5-step lifecycle legend */}
           <div className="card py-3">
             <div className="flex items-center gap-0 overflow-x-auto">
-              {[
-                { label: 'OE Sent', color: 'bg-indigo-500', active: true },
-                { label: 'Baseline', color: 'bg-blue-500', active: true },
-                { label: 'Flex Offer', color: 'bg-teal-500', active: true },
-                { label: 'Acknowledged', color: 'bg-green-500', active: true },
-                { label: 'Telemetry', color: 'bg-gray-500', active: true },
-                { label: 'Performance', color: 'bg-amber-500', active: true },
-                { label: 'Settlement', color: 'bg-purple-500', active: true },
-              ].map((step, i, arr) => (
+              {LIFECYCLE_STEPS.map((step, i, arr) => (
                 <React.Fragment key={step.label}>
                   <div className="flex flex-col items-center flex-shrink-0">
                     <div className={clsx('w-3 h-3 rounded-full', step.color)} />
                     <span className="text-[10px] text-gray-400 mt-1 whitespace-nowrap">{step.label}</span>
                   </div>
-                  {i < arr.length - 1 && (
-                    <div className="flex-1 h-px bg-gray-700 mx-2 mb-4 min-w-[20px]" />
-                  )}
+                  {i < arr.length - 1 && <div className="flex-1 h-px bg-gray-700 mx-2 mb-4 min-w-[24px]" />}
                 </React.Fragment>
               ))}
             </div>
           </div>
-
-          {/* Message list */}
-          <div className="space-y-2">
-            {MESSAGE_THREAD.map((msg) => {
-              const isExpanded = expandedId === msg.id
-              const tagCls = msgTagClass(msg.direction, msg.typeLabel)
-              const isInbound = msg.direction === 'inbound'
-
-              return (
-                <div
-                  key={msg.id}
-                  className={clsx(
-                    'rounded-xl border transition-all',
-                    isInbound ? 'border-gray-700/60 bg-gray-800/40' : 'border-indigo-900/40 bg-indigo-950/30',
-                  )}
-                >
-                  {/* Header row */}
-                  <div
-                    className="flex items-start gap-3 p-3.5 cursor-pointer"
-                    onClick={() => setExpandedId(isExpanded ? null : msg.id)}
-                  >
-                    {/* Direction indicator */}
-                    <div className={clsx(
-                      'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5',
-                      isInbound ? 'bg-teal-900/60' : 'bg-indigo-900/60'
-                    )}>
-                      {isInbound
-                        ? <ArrowDownLeft className="w-3.5 h-3.5 text-teal-400" />
-                        : <ArrowUpRight className="w-3.5 h-3.5 text-indigo-400" />
-                      }
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={clsx(
-                          'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border',
-                          tagCls
-                        )}>
-                          {msg.typeLabel}
-                        </span>
-                        <span className="text-xs text-gray-500 font-mono">{msg.timestamp}</span>
-                        <span className={clsx(
-                          'text-[10px] px-1.5 py-0.5 rounded font-medium',
-                          msg.status === 'acknowledged' ? 'bg-green-900/40 text-green-400'
-                          : msg.status === 'sent' ? 'bg-indigo-900/40 text-indigo-400'
-                          : 'bg-gray-800 text-gray-400'
-                        )}>
-                          {msg.status.toUpperCase()}
-                        </span>
-                        <span className="text-[10px] text-gray-600 font-mono ml-auto truncate hidden sm:block">
-                          {isInbound ? 'D4G → DSO' : 'DSO → D4G'} · {msg.type}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-300 mt-1 leading-relaxed">{msg.summary}</p>
-                    </div>
-
-                    <ChevronDown className={clsx(
-                      'w-4 h-4 text-gray-500 flex-shrink-0 transition-transform mt-1',
-                      isExpanded && 'rotate-180'
-                    )} />
-                  </div>
-
-                  {/* Expanded payload */}
-                  {isExpanded && (
-                    <div className="border-t border-gray-700/50 mx-3.5 mb-3.5 pt-3">
-                      <div className="text-[10px] text-gray-500 mb-1.5 font-medium uppercase tracking-wide">
-                        Message Payload — {msg.type}
-                      </div>
-                      <div className="bg-gray-900/80 rounded-lg p-3 max-h-64 overflow-y-auto">
-                        <JsonHighlight json={msg.payload} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
+          <div className="space-y-2">{renderMessages(MESSAGE_THREAD)}</div>
         </>
       )}
 
-      {/* ── Live Simulation view ─────────────────────────────────────────────── */}
+      {/* ── Live Sim view ─────────────────────────────────────────────────────── */}
       {activeView === 'live' && (
         <>
-          {/* Controls */}
           <div className="card flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-200 font-medium">Lifecycle Simulation</p>
+              <p className="text-sm text-gray-200 font-medium">D4G Lifecycle Simulation</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                Replays the full OE → Baseline → Flex → ACK → Telemetry → Performance sequence with realistic timing.
-                Timestamps reflect when each message was sent/received.
+                Replays the 5-message IEC 62746-4 sequence: A38 OE → REC/A26 → FlexOffer → A32 Activation → A16 Measurement.
+                Timestamps reflect live playback time.
               </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 ml-4">
@@ -461,11 +444,8 @@ export default function D4GMessagesPage() {
                   <RotateCcw className="w-3.5 h-3.5" /> Reset
                 </button>
               )}
-              <button
-                onClick={startSimulation}
-                disabled={simRunning}
-                className="btn-primary flex items-center gap-2 text-sm"
-              >
+              <button onClick={startSimulation} disabled={simRunning}
+                className="btn-primary flex items-center gap-2 text-sm">
                 {simRunning
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Simulating…</>
                   : <><Play className="w-4 h-4" /> {liveMessages.length > 0 ? 'Replay' : 'Start Simulation'}</>
@@ -474,7 +454,6 @@ export default function D4GMessagesPage() {
             </div>
           </div>
 
-          {/* Live message feed */}
           {liveMessages.length === 0 && !simRunning && (
             <div className="card flex flex-col items-center justify-center py-16 text-gray-500">
               <Play className="w-8 h-8 mb-3 text-gray-600" />
@@ -484,69 +463,19 @@ export default function D4GMessagesPage() {
 
           {(liveMessages.length > 0 || simRunning) && (
             <div className="space-y-2">
-              {liveMessages.map((msg) => {
-                const isInbound = msg.direction === 'inbound'
-                const tagCls = msgTagClass(msg.direction, msg.typeLabel)
-                const isExp = expandedId === msg.id
-                return (
-                  <div
-                    key={msg.id}
-                    className={clsx(
-                      'rounded-xl border transition-all animate-fade-in',
-                      isInbound ? 'border-gray-700/60 bg-gray-800/40' : 'border-indigo-900/40 bg-indigo-950/30',
-                    )}
-                  >
-                    <div className="flex items-start gap-3 p-3.5 cursor-pointer"
-                      onClick={() => setExpandedId(isExp ? null : msg.id)}>
-                      <div className={clsx(
-                        'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5',
-                        isInbound ? 'bg-teal-900/60' : 'bg-indigo-900/60'
-                      )}>
-                        {isInbound
-                          ? <ArrowDownLeft className="w-3.5 h-3.5 text-teal-400" />
-                          : <ArrowUpRight className="w-3.5 h-3.5 text-indigo-400" />
-                        }
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border', tagCls)}>
-                            {msg.typeLabel}
-                          </span>
-                          <span className="text-xs text-gray-500 font-mono">{msg.timestamp}</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-green-900/40 text-green-400">
-                            {isInbound ? 'RECEIVED' : 'SENT'}
-                          </span>
-                          <span className="text-[10px] text-gray-600 ml-auto hidden sm:block">{isInbound ? 'D4G → DSO' : 'DSO → D4G'}</span>
-                        </div>
-                        <p className="text-xs text-gray-300 mt-1">{msg.summary}</p>
-                      </div>
-                      <ChevronDown className={clsx('w-4 h-4 text-gray-500 flex-shrink-0 transition-transform mt-1', isExp && 'rotate-180')} />
-                    </div>
-                    {isExp && (
-                      <div className="border-t border-gray-700/50 mx-3.5 mb-3.5 pt-3">
-                        <div className="text-[10px] text-gray-500 mb-1.5 font-medium uppercase tracking-wide">Payload — {msg.type}</div>
-                        <div className="bg-gray-900/80 rounded-lg p-3 max-h-64 overflow-y-auto">
-                          <JsonHighlight json={msg.payload} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-
-              {/* Pending indicator */}
+              {renderMessages(liveMessages)}
               {pendingLabel && (
                 <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-700/40 bg-gray-800/30">
                   <Loader2 className="w-4 h-4 text-indigo-400 animate-spin flex-shrink-0" />
                   <span className="text-xs text-gray-400">{pendingLabel}</span>
                 </div>
               )}
-
-              {/* Done banner */}
               {simDone && (
                 <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-green-800/40 bg-green-900/20">
                   <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
-                  <span className="text-sm text-green-300 font-medium">Lifecycle complete — all 8 messages exchanged</span>
+                  <span className="text-sm text-green-300 font-medium">
+                    Lifecycle complete — all 5 D4G messages exchanged (A38 → REC → A26 → A32 → A16)
+                  </span>
                 </div>
               )}
             </div>
@@ -557,7 +486,6 @@ export default function D4GMessagesPage() {
       {/* ── Performance view ─────────────────────────────────────────────────── */}
       {activeView === 'performance' && (
         <>
-          {/* KPI cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="card text-center">
               <div className="text-xs text-gray-400 mb-1">Delivery %</div>
@@ -565,77 +493,68 @@ export default function D4GMessagesPage() {
               <div className="text-xs text-gray-500 mt-0.5">Target ≥ 80%</div>
             </div>
             <div className="card text-center">
-              <div className="text-xs text-gray-400 mb-1">Curtailed</div>
-              <div className="text-2xl font-bold text-indigo-400">144.2</div>
+              <div className="text-xs text-gray-400 mb-1">EV Load Curtailed</div>
+              <div className="text-2xl font-bold text-indigo-400">{totalDelivered}</div>
               <div className="text-xs text-gray-500 mt-0.5">kWh delivered</div>
             </div>
             <div className="card text-center">
               <div className="text-xs text-gray-400 mb-1">Committed</div>
-              <div className="text-2xl font-bold text-gray-300">149.6</div>
+              <div className="text-2xl font-bold text-gray-300">{totalCommitted}</div>
               <div className="text-xs text-gray-500 mt-0.5">kWh target</div>
             </div>
             <div className="card text-center">
-              <div className="text-xs text-gray-400 mb-1">Penalty</div>
-              <div className="text-2xl font-bold text-green-400">None</div>
-              <div className="text-xs text-gray-500 mt-0.5">{'>'} 80% delivered</div>
+              <div className="text-xs text-gray-400 mb-1">Branch B Peak</div>
+              <div className="text-2xl font-bold text-amber-400">479→234</div>
+              <div className="text-xs text-gray-500 mt-0.5">kW (before→after)</div>
             </div>
           </div>
 
-          {/* Per-slot chart: committed vs delivered */}
           <div className="card">
-            <h3 className="text-sm font-semibold text-white mb-1">Half-hourly Delivery vs Commitment</h3>
-            <p className="text-xs text-gray-500 mb-4">Each bar pair = one 30-min slot during the 11:00–17:00 OE window</p>
+            <h3 className="text-sm font-semibold text-white mb-1">Half-hourly EV Curtailment vs Commitment</h3>
+            <p className="text-xs text-gray-500 mb-4">Branch B · EV surge window 18:00–22:00 · 8 × PT30M slots</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={PERFORMANCE_DATA} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis dataKey="slot" tick={{ fill: '#9ca3af', fontSize: 10 }} />
                   <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} unit=" kW" />
-                  <Tooltip
-                    contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: number, name: string) => [`${v.toFixed(1)} kW`, name]}
-                  />
+                  <Tooltip contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number, name: string) => [`${v.toFixed(0)} kW`, name]} />
                   <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
-                  <ReferenceLine y={187.8} stroke="#6366f1" strokeDasharray="4 2" label={{ value: 'Committed', fill: '#6366f1', fontSize: 10 }} />
-                  <Bar dataKey="committed" name="Committed kW" fill="#4f46e5" opacity={0.5} radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="delivered" name="Delivered kW" fill="#10b981" opacity={0.85} radius={[2, 2, 0, 0]} />
+                  <ReferenceLine y={245} stroke="#6366f1" strokeDasharray="4 2"
+                    label={{ value: 'Committed 245 kW', fill: '#6366f1', fontSize: 10 }} />
+                  <Bar dataKey="committed" name="Committed kW" fill="#4f46e5" opacity={0.5} radius={[2,2,0,0]} />
+                  <Bar dataKey="delivered" name="Delivered kW" fill="#10b981" opacity={0.85} radius={[2,2,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Voltage recovery chart */}
           <div className="card">
-            <h3 className="text-sm font-semibold text-white mb-1">Voltage Recovery During Event</h3>
-            <p className="text-xs text-gray-500 mb-4">DT-AUZ-005 secondary voltage (pu) — target: 0.95–1.05 pu</p>
+            <h3 className="text-sm font-semibold text-white mb-1">Branch B Thermal Loading During Event</h3>
+            <p className="text-xs text-gray-500 mb-4">DT thermal limit = 225 kW (100%) · Target: stay below overload with EV curtailment</p>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={PERFORMANCE_DATA} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis dataKey="slot" tick={{ fill: '#9ca3af', fontSize: 10 }} />
-                  <YAxis
-                    tick={{ fill: '#9ca3af', fontSize: 10 }}
-                    domain={[1.03, 1.07]}
-                    tickFormatter={(v) => v.toFixed(3)}
-                  />
-                  <Tooltip
-                    contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: number) => [v.toFixed(3) + ' pu', 'Voltage']}
-                  />
-                  <ReferenceLine y={1.05} stroke="#ef4444" strokeDasharray="4 2" label={{ value: '1.05 limit', fill: '#ef4444', fontSize: 10 }} />
-                  <Bar dataKey="voltage" name="Voltage (pu)" fill="#f59e0b" opacity={0.85} radius={[2, 2, 0, 0]} />
+                  <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} unit="%" domain={[90, 120]} />
+                  <Tooltip contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number) => [v + '%', 'DT Loading']} />
+                  <ReferenceLine y={100} stroke="#ef4444" strokeDasharray="4 2"
+                    label={{ value: 'Thermal limit 100%', fill: '#ef4444', fontSize: 10 }} />
+                  <Bar dataKey="loading_pct" name="DT Loading %" fill="#f59e0b" opacity={0.85} radius={[2,2,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-2 flex items-center gap-2 text-xs text-green-400">
+            <div className="mt-2 flex items-center gap-2 text-xs text-amber-400">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              Voltage stayed below 1.05 pu throughout the event window — constraint satisfied
+              Residual overloading (104–114%) due to driver override at 20:30 — second OE cycle would resolve fully
             </div>
           </div>
 
-          {/* Per-asset performance */}
           <div className="card">
-            <h3 className="text-sm font-semibold text-white mb-3">Per-Asset Performance</h3>
+            <h3 className="text-sm font-semibold text-white mb-3">Per EV Charger Performance</h3>
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -652,27 +571,30 @@ export default function D4GMessagesPage() {
                     <td className="py-2.5 text-gray-200 font-medium">{a.name}</td>
                     <td className="py-2.5 text-right font-mono text-gray-300">{a.committed}</td>
                     <td className="py-2.5 text-right font-mono text-green-400">{a.delivered}</td>
-                    <td className="py-2.5 text-right font-mono text-green-400">{a.pct}%</td>
+                    <td className="py-2.5 text-right font-mono"
+                      style={{ color: a.pct >= 80 ? '#34d399' : '#f59e0b' }}>{a.pct}%</td>
                     <td className="py-2.5 text-right">
-                      <span className="inline-flex items-center gap-1 text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full border border-green-800/40">
-                        <CheckCircle2 className="w-3 h-3" /> No penalty
+                      <span className={clsx(
+                        'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border',
+                        a.pct >= 95 ? 'bg-green-900/40 text-green-400 border-green-800/40'
+                        : a.pct >= 80 ? 'bg-amber-900/40 text-amber-400 border-amber-800/40'
+                        : 'bg-red-900/40 text-red-400 border-red-800/40'
+                      )}>
+                        {a.pct >= 95 ? '✓ Full pay' : a.pct >= 80 ? '~ Pro-rata' : '✗ Penalty'}
                       </span>
                     </td>
                   </tr>
                 ))}
                 <tr className="border-t-2 border-gray-600">
                   <td className="py-2.5 text-white font-semibold">Total</td>
-                  <td className="py-2.5 text-right font-mono font-semibold text-gray-200">{totalCommitted.toFixed(1)}</td>
-                  <td className="py-2.5 text-right font-mono font-semibold text-green-400">{totalDelivered.toFixed(1)}</td>
+                  <td className="py-2.5 text-right font-mono font-semibold text-gray-200">{totalCommitted}</td>
+                  <td className="py-2.5 text-right font-mono font-semibold text-green-400">{totalDelivered}</td>
                   <td className="py-2.5 text-right font-mono font-semibold text-green-400">{overallPct}%</td>
-                  <td className="py-2.5 text-right">
-                    <span className="text-xs text-gray-400">Ready for settlement</span>
-                  </td>
+                  <td className="py-2.5 text-right text-xs text-gray-400">Ready for settlement</td>
                 </tr>
               </tbody>
             </table>
           </div>
-
         </>
       )}
     </div>

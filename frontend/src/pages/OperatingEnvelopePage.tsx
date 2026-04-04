@@ -13,10 +13,12 @@ interface OEPoint {
   quantity_Minimum: number
   quantity_Maximum: number
   qualityCode: string
+  constraint: string
 }
 
 function generateOEPoints(dtId: string, startTime: Date, count = 48): OEPoint[] {
   const isCritical = dtId === 'DT-AUZ-005'
+  const isDemoDT = dtId === 'DT-AUZ-001'
   const points: OEPoint[] = []
   for (let i = 0; i < count; i++) {
     const t = new Date(startTime.getTime() + i * 30 * 60 * 1000)
@@ -24,6 +26,13 @@ function generateOEPoints(dtId: string, startTime: Date, count = 48): OEPoint[] 
     // Sine wave variation across the day (peak midday)
     const sineVal = Math.sin((Math.PI * (hour - 6)) / 12)
     const factor = Math.max(0, sineVal)
+    // EV surge window: 18:00–22:00 (slots 36–44)
+    const isEvSurge = hour >= 18 && hour < 22
+    // Determine constraint label
+    let constraint = '—'
+    if (isCritical && factor > 0.1) constraint = 'LV feeder thermal'
+    else if (isDemoDT && isEvSurge) constraint = 'Branch B thermal'
+
     if (isCritical) {
       // Constrained: max export 120 kW during day, reduced further at night
       const maxExport = factor > 0.1 ? 120 - factor * 20 : 50
@@ -34,16 +43,22 @@ function generateOEPoints(dtId: string, startTime: Date, count = 48): OEPoint[] 
         quantity_Minimum: parseFloat(minImport.toFixed(1)),
         quantity_Maximum: parseFloat(maxExport.toFixed(1)),
         qualityCode: 'A06',
+        constraint,
       })
     } else {
       const dt = DISTRIBUTION_TRANSFORMERS.find((d) => d.id === dtId)
       const cap = dt ? dt.capacity_kva * 0.8 : 200
+      // For demo DT during EV surge: tighten the envelope
+      const maxExport = isDemoDT && isEvSurge
+        ? 90  // constrained export cap during EV surge
+        : parseFloat((cap * 0.6 + factor * cap * 0.15).toFixed(1))
       points.push({
         position: i + 1,
         time: t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
         quantity_Minimum: parseFloat((-cap * 0.4 - factor * cap * 0.1).toFixed(1)),
-        quantity_Maximum: parseFloat((cap * 0.6 + factor * cap * 0.15).toFixed(1)),
+        quantity_Maximum: parseFloat(maxExport.toFixed ? maxExport.toFixed(1) : String(maxExport)),
         qualityCode: 'A06',
+        constraint,
       })
     }
   }
@@ -200,15 +215,24 @@ export default function OperatingEnvelopePage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-white">Operating Envelope</h1>
-        <p className="text-sm text-gray-400 mt-0.5">IEC 62746-4 · 48-slot rolling window · published every 30 min</p>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-white">Operating Envelope</h1>
+          <span className="px-2 py-0.5 rounded text-xs font-bold bg-indigo-900/60 text-indigo-300 border border-indigo-700/40 font-mono">A38</span>
+        </div>
+        <p className="text-sm text-gray-400 mt-0.5">IEC 62746-4 · A38 ReferenceEnergyCurveOperatingEnvelope · 48-slot rolling window · PT30M</p>
       </div>
 
       <div className="grid grid-cols-2 gap-6">
         {/* LEFT — OE Generation */}
         <div className="space-y-4">
           <div className="card">
-            <h2 className="text-sm font-semibold text-white mb-4">OE Generation</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-white">OE Generation</h2>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-900/60 text-indigo-300 border border-indigo-700/40 font-mono">A38</span>
+                <span className="text-[10px] text-gray-500">ReferenceEnergyCurveOperatingEnvelope</span>
+              </div>
+            </div>
 
             <div className="space-y-3">
               <div>
@@ -325,12 +349,16 @@ export default function OperatingEnvelopePage() {
                       <th className="text-left text-gray-400 font-medium px-2 py-1.5">Time</th>
                       <th className="text-right text-gray-400 font-medium px-2 py-1.5">Import Max (kW)</th>
                       <th className="text-right text-gray-400 font-medium px-2 py-1.5">Export Max (kW)</th>
+                      <th className="text-left text-gray-400 font-medium px-2 py-1.5">Constraint</th>
                       <th className="text-center text-gray-400 font-medium px-2 py-1.5">Quality</th>
                     </tr>
                   </thead>
                   <tbody>
                     {oePoints.map((p) => (
-                      <tr key={p.position} className="border-t border-gray-700/50 hover:bg-gray-800/40">
+                      <tr key={p.position} className={clsx(
+                        'border-t border-gray-700/50 hover:bg-gray-800/40',
+                        p.constraint !== '—' && 'bg-red-950/20'
+                      )}>
                         <td className="px-2 py-1 text-gray-400 font-mono">{p.position}</td>
                         <td className="px-2 py-1 text-gray-300 font-mono">{p.time}</td>
                         <td className="px-2 py-1 text-right">
@@ -350,6 +378,15 @@ export default function OperatingEnvelopePage() {
                             />
                             <span className="text-green-300 font-mono">{p.quantity_Maximum.toFixed(1)}</span>
                           </div>
+                        </td>
+                        <td className="px-2 py-1">
+                          {p.constraint === '—' ? (
+                            <span className="text-gray-600 text-[10px]">—</span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-900/50 text-red-300 border border-red-800/40">
+                              {p.constraint}
+                            </span>
+                          )}
                         </td>
                         <td className="px-2 py-1 text-center">
                           <span className="badge-info text-[10px]">{p.qualityCode}</span>

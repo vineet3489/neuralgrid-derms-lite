@@ -2,7 +2,7 @@ import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useGridStore } from '../stores/gridStore'
-import { Map, Activity, Radio, TrendingUp, LogOut, Zap, Bell, MessageSquare } from 'lucide-react'
+import { Map, Activity, Radio, TrendingUp, LogOut, Zap, Bell, MessageSquare, BarChart2 } from 'lucide-react'
 import clsx from 'clsx'
 
 const NAV_ITEMS = [
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { path: '/envelope', label: 'Operating Envelope', icon: Radio },
   { path: '/d4g',      label: 'D4G Messages',       icon: MessageSquare },
   { path: '/forecast', label: 'Forecasting', icon: TrendingUp },
+  { path: '/baseline', label: 'Baseline vs Flex', icon: BarChart2 },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {

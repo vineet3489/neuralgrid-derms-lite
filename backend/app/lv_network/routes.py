@@ -384,3 +384,20 @@ async def get_area_lv_network(
         raise HTTPException(status_code=500, detail=f"Area LV network fetch failed: {exc}")
 
     return geojson
+
+
+@router.get("/powsybl-power-flow")
+async def powsybl_power_flow_endpoint(
+    ev_surge: bool = False,
+):
+    """
+    Run Powsybl AC load flow on the Auzances 250 kVA 3-branch LV reference network.
+
+    Uses pypowsybl (OpenLoadFlow) if available, falls back to DistFlow.
+
+    Query params:
+      ev_surge: bool — if true, adds 3 EV fast chargers to Branch B (350 kW)
+    """
+    from app.lv_network.powsybl_service import run_auzance_power_flow
+    result = run_auzance_power_flow(ev_surge=ev_surge)
+    return result
