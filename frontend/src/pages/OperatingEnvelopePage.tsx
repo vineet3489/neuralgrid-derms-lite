@@ -1,11 +1,12 @@
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { DISTRIBUTION_TRANSFORMERS, DER_ASSETS } from '../data/auzanceNetwork'
-import { CheckCircle, Copy, ChevronDown, ChevronUp, Loader2, Send } from 'lucide-react'
+import { CheckCircle, Copy, ChevronDown, ChevronUp, Loader2, Send, Cpu } from 'lucide-react'
 import clsx from 'clsx'
+import { api } from '../api/client'
 
 interface OEPoint {
   position: number
@@ -14,6 +15,13 @@ interface OEPoint {
   quantity_Maximum: number
   qualityCode: string
   constraint: string
+  // Physics fields (populated when LinDistFlow backend is used)
+  total_load_kw?: number
+  dt_loading_pct?: number
+  min_v_end_pu?: number
+  branch_B_load_kw?: number
+  ev_surge?: boolean
+  source?: string
 }
 
 function generateOEPoints(dtId: string, startTime: Date, count = 48): OEPoint[] {
@@ -154,6 +162,9 @@ export default function OperatingEnvelopePage() {
   const [oePoints, setOePoints] = useState<OEPoint[]>([])
   const [showRawOE, setShowRawOE] = useState(false)
   const [copiedOE, setCopiedOE] = useState(false)
+  const [oeLoading, setOeLoading] = useState(false)
+  const [oeError, setOeError] = useState<string | null>(null)
+  const [oeSolver, setOeSolver] = useState<'LinDistFlow' | 'Heuristic'>('Heuristic')
 
   // D4G state
   const [endpoint, setEndpoint] = useState('https://d4g-aggregator.example.com/oe/receive')
@@ -162,14 +173,50 @@ export default function OperatingEnvelopePage() {
   const [d4gResponse, setD4gResponse] = useState<ReturnType<typeof buildD4GResponse> | null>(null)
   const [showRawD4G, setShowRawD4G] = useState(false)
 
-  const handleGenerateOE = () => {
+  const handleGenerateOE = useCallback(async () => {
+    setOeLoading(true)
+    setOeError(null)
+    setD4gResponse(null)
+
+    // For the demo DT, fetch physics-based LinDistFlow OE from backend
+    if (selectedDtId === 'DT-AUZ-001') {
+      try {
+        const resp = await api.lindistflowOE(selectedDtId)
+        const slots: OEPoint[] = resp.data.slots.map((s: any) => ({
+          position: s.position,
+          time: s.time,
+          quantity_Minimum: s.quantity_Minimum,
+          quantity_Maximum: s.quantity_Maximum,
+          qualityCode: s.qualityCode,
+          constraint: s.constraint,
+          total_load_kw: s.total_load_kw,
+          dt_loading_pct: s.dt_loading_pct,
+          min_v_end_pu: s.min_v_end_pu,
+          branch_B_load_kw: s.branch_B_load_kw,
+          ev_surge: s.ev_surge,
+          source: s.source,
+        }))
+        setOePoints(slots)
+        setOeSolver('LinDistFlow')
+        const doc = buildOEDocument(selectedDtId, oeDate, oeStartTime, oeEndTime, slots)
+        setOeDoc(doc)
+        setOeLoading(false)
+        return
+      } catch (err: any) {
+        // Backend unavailable — fall through to heuristic
+        setOeError('Backend unavailable — using heuristic fallback')
+      }
+    }
+
+    // Fallback: heuristic for non-demo DTs or when backend is down
     const startDT = new Date(`${oeDate}T${oeStartTime}:00`)
     const pts = generateOEPoints(selectedDtId, startDT, 48)
     setOePoints(pts)
+    setOeSolver('Heuristic')
     const doc = buildOEDocument(selectedDtId, oeDate, oeStartTime, oeEndTime, pts)
     setOeDoc(doc)
-    setD4gResponse(null)
-  }
+    setOeLoading(false)
+  }, [selectedDtId, oeDate, oeStartTime, oeEndTime])
 
   const handleCopyOE = () => {
     if (!oeDoc) return
@@ -239,7 +286,7 @@ export default function OperatingEnvelopePage() {
                 <label className="block text-xs text-gray-400 mb-1.5">Distribution Transformer</label>
                 <select
                   value={selectedDtId}
-                  onChange={(e) => { setSelectedDtId(e.target.value); localStorage.setItem('lite_selected_dt', e.target.value); setOeDoc(null); setD4gResponse(null) }}
+                  onChange={(e) => { setSelectedDtId(e.target.value); localStorage.setItem('lite_selected_dt', e.target.value); setOeDoc(null); setD4gResponse(null); setOePoints([]); setOeError(null) }}
                   className="w-full bg-gray-700 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 >
                   {DISTRIBUTION_TRANSFORMERS.map((dt) => (
@@ -280,9 +327,19 @@ export default function OperatingEnvelopePage() {
                 </div>
               </div>
 
-              <button onClick={handleGenerateOE} className="w-full btn-primary">
-                Generate OE Document
+              <button
+                onClick={handleGenerateOE}
+                disabled={oeLoading}
+                className="w-full btn-primary flex items-center justify-center gap-2"
+              >
+                {oeLoading
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Computing OE…</>
+                  : 'Generate OE Document'
+                }
               </button>
+              {oeError && (
+                <p className="text-xs text-amber-400 text-center">{oeError}</p>
+              )}
             </div>
           </div>
 
@@ -319,7 +376,18 @@ export default function OperatingEnvelopePage() {
           {oePoints.length > 0 && oeDoc && (
             <div className="card">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-white">Time-Slot Schedule (48 slots · PT30M)</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-white">Time-Slot Schedule (48 slots · PT30M)</h3>
+                  <span className={clsx(
+                    'flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border',
+                    oeSolver === 'LinDistFlow'
+                      ? 'bg-indigo-900/60 text-indigo-300 border-indigo-700/40'
+                      : 'bg-gray-800 text-gray-400 border-gray-700/40'
+                  )}>
+                    <Cpu className="w-2.5 h-2.5" />
+                    {oeSolver}
+                  </span>
+                </div>
                 <div className="flex gap-2">
                   <button onClick={handleCopyOE} className="flex items-center gap-1.5 btn-secondary text-xs py-1.5">
                     {copiedOE ? <CheckCircle className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -349,6 +417,10 @@ export default function OperatingEnvelopePage() {
                       <th className="text-left text-gray-400 font-medium px-2 py-1.5">Time</th>
                       <th className="text-right text-gray-400 font-medium px-2 py-1.5">Import Max (kW)</th>
                       <th className="text-right text-gray-400 font-medium px-2 py-1.5">Export Max (kW)</th>
+                      {oeSolver === 'LinDistFlow' && <>
+                        <th className="text-right text-gray-400 font-medium px-2 py-1.5">DT Load %</th>
+                        <th className="text-right text-gray-400 font-medium px-2 py-1.5">V_min (pu)</th>
+                      </>}
                       <th className="text-left text-gray-400 font-medium px-2 py-1.5">Constraint</th>
                       <th className="text-center text-gray-400 font-medium px-2 py-1.5">Quality</th>
                     </tr>
@@ -360,7 +432,10 @@ export default function OperatingEnvelopePage() {
                         p.constraint !== '—' && 'bg-red-950/20'
                       )}>
                         <td className="px-2 py-1 text-gray-400 font-mono">{p.position}</td>
-                        <td className="px-2 py-1 text-gray-300 font-mono">{p.time}</td>
+                        <td className="px-2 py-1 text-gray-300 font-mono">
+                          {p.time}
+                          {p.ev_surge && <span className="ml-1 text-[9px] text-amber-400 font-bold">EV</span>}
+                        </td>
                         <td className="px-2 py-1 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <div
@@ -376,9 +451,32 @@ export default function OperatingEnvelopePage() {
                               className="h-3 bg-green-500/70 rounded-sm"
                               style={{ width: `${p.quantity_Maximum / 2}px`, minWidth: 2 }}
                             />
-                            <span className="text-green-300 font-mono">{p.quantity_Maximum.toFixed(1)}</span>
+                            <span className={clsx(
+                              'font-mono',
+                              p.quantity_Maximum <= 0 ? 'text-red-400' : 'text-green-300'
+                            )}>{p.quantity_Maximum.toFixed(1)}</span>
                           </div>
                         </td>
+                        {oeSolver === 'LinDistFlow' && <>
+                          <td className="px-2 py-1 text-right">
+                            <span className={clsx(
+                              'font-mono text-[11px]',
+                              (p.dt_loading_pct ?? 0) > 100 ? 'text-red-400' :
+                              (p.dt_loading_pct ?? 0) > 75 ? 'text-amber-400' : 'text-gray-400'
+                            )}>
+                              {p.dt_loading_pct?.toFixed(0)}%
+                            </span>
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            <span className={clsx(
+                              'font-mono text-[11px]',
+                              (p.min_v_end_pu ?? 1) < 0.94 ? 'text-red-400' :
+                              (p.min_v_end_pu ?? 1) < 0.97 ? 'text-amber-400' : 'text-gray-400'
+                            )}>
+                              {p.min_v_end_pu?.toFixed(3)}
+                            </span>
+                          </td>
+                        </>}
                         <td className="px-2 py-1">
                           {p.constraint === '—' ? (
                             <span className="text-gray-600 text-[10px]">—</span>

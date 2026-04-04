@@ -386,6 +386,33 @@ async def get_area_lv_network(
     return geojson
 
 
+@router.get("/lindistflow-oe")
+async def lindistflow_oe_endpoint(
+    dt_id: str = Query("DT-AUZ-001", description="Distribution transformer ID"),
+) -> dict:
+    """
+    Compute 48-slot day-ahead Operating Envelope using LinDistFlow for the
+    Auzances 250 kVA demo network.
+
+    LinDistFlow is the industry-standard method used by real DNSPs (SAPN, AusNet,
+    WPD) for batch OE computation.  Each slot checks:
+      - DT thermal constraint (225 kW limit)
+      - End-of-feeder voltage constraint (0.94–1.06 pu)
+      - Cable ampacity (300 A / 200 A per branch)
+
+    Returns 48 × 30-min slots with physics-based export/import limits.
+    """
+    from app.lv_network.lindistflow_oe import compute_lindistflow_oe_48slots
+    slots = compute_lindistflow_oe_48slots(dt_id=dt_id)
+    return {
+        "dt_id": dt_id,
+        "solver": "LinDistFlow",
+        "slot_count": len(slots),
+        "interval_minutes": 30,
+        "slots": slots,
+    }
+
+
 @router.get("/powsybl-power-flow")
 async def powsybl_power_flow_endpoint(
     ev_surge: bool = False,

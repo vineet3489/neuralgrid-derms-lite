@@ -194,6 +194,10 @@ export const api = {
   dynamicOE: (cmzId: string, horizonHours?: number, recalculate?: boolean) =>
     apiClient.get(`/lv-network/dynamic-oe/${cmzId}?horizon_hours=${horizonHours ?? 48}&recalculate=${recalculate ?? false}`),
 
+  // LinDistFlow 48-slot OE (physics-based, industry-standard)
+  lindistflowOE: (dtId: string = 'DT-AUZ-001') =>
+    apiClient.get(`/lv-network/lindistflow-oe?dt_id=${dtId}`),
+
   // CIM aggregator — IEC 62325 + IEC 62746-4
   cimProtocols: () => apiClient.get('/aggregator/cim/protocols'),
   cimCapability: (data: unknown) => apiClient.post('/aggregator/cim/capability', data),
