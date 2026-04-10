@@ -5,6 +5,33 @@ import {
 import { AlertTriangle, CheckCircle, Loader2, Zap, Car } from 'lucide-react'
 import clsx from 'clsx'
 
+// ─── Diurnal profile ─────────────────────────────────────────────────────────
+
+const DIURNAL = [
+  0.55, 0.50, 0.48, 0.45, 0.45, 0.48,
+  0.55, 0.70, 0.95, 1.05, 1.00, 0.95,
+  0.90, 0.88, 0.85, 0.85, 0.85, 0.88,
+  0.90, 0.95, 0.95, 0.92, 0.88, 0.85,
+  0.85, 0.85, 0.88, 0.90, 0.95, 1.00,
+  1.10, 1.20, 1.35, 1.45, 1.55, 1.65,
+  1.70, 1.70, 1.65, 1.60, 1.55, 1.50,
+  1.40, 1.20, 1.00, 0.85, 0.72, 0.62,
+]
+// Base loads (day-ahead average, from LinDistFlow)
+const BASE_LOADS: Record<string, number> = { 'BR-A': 46, 'BR-B': 58, 'BR-C': 27 }
+const EV_SURGE_KW = 350  // added to BR-B for slots 36-43
+
+function slotToTime(slot: number): string {
+  const h = Math.floor(slot / 2)
+  const m = slot % 2 === 0 ? '00' : '30'
+  return `${String(h).padStart(2, '0')}:${m}`
+}
+
+const currentSlot = () => {
+  const now = new Date()
+  return Math.min(47, now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0))
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface BranchResult {
@@ -45,13 +72,18 @@ interface PowerFlowResult {
 
 // ─── Synthetic solver (frontend fallback) ─────────────────────────────────────
 
-function solveFrontend(evSurge: boolean): PowerFlowResult {
+function solveFrontend(slot: number): PowerFlowResult {
   const V_NOM = 400.0
   const DT_LIMIT = DEMO_DT.thermal_limit_kw
   const PF = 0.9
+  const mult = DIURNAL[slot]
+  const evSurge = slot >= 36 && slot < 44
 
   const branches: BranchResult[] = LV_BRANCHES_DEMO.map((br) => {
-    const totalLoad = br.base_load_kw + (evSurge ? br.ev_load_kw : 0)
+    const baseKw = BASE_LOADS[br.id] ?? br.base_load_kw
+    const residentialLoad = baseKw * mult
+    const evLoad = (br.id === 'BR-B' && slot >= 36 && slot < 44) ? EV_SURGE_KW : 0
+    const totalLoad = residentialLoad + evLoad
     const q = totalLoad * Math.tan(Math.acos(PF))
     const delta_v_sq = 2 * (br.r_ohm * totalLoad * 1000 + br.x_ohm * q * 1000) / (V_NOM ** 2)
     const v_end_pu = Math.sqrt(Math.max(1.0 - delta_v_sq, 0.01))
@@ -70,8 +102,8 @@ function solveFrontend(evSurge: boolean): PowerFlowResult {
       phase: br.phase,
       households: br.households,
       length_m: br.length_m,
-      base_load_kw: br.base_load_kw,
-      ev_load_kw: evSurge ? br.ev_load_kw : 0,
+      base_load_kw: parseFloat(residentialLoad.toFixed(1)),
+      ev_load_kw: parseFloat(evLoad.toFixed(1)),
       total_load_kw: parseFloat(totalLoad.toFixed(1)),
       v_end_pu: parseFloat(v_end_pu.toFixed(4)),
       v_end_v: parseFloat((v_end_pu * V_NOM).toFixed(1)),
@@ -123,10 +155,12 @@ function branchStatusBadge(thermal: string, voltage: string) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function PowerFlowPage() {
-  const [evSurge, setEvSurge] = useState(false)
+  const [slotIndex, setSlotIndex] = useState<number>(currentSlot)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<PowerFlowResult | null>(null)
   const [engine, setEngine] = useState<'Powsybl' | 'DistFlow'>('DistFlow')
+
+  const evSurge = slotIndex >= 36 && slotIndex < 44
 
   const runPowerFlow = async () => {
     setRunning(true)
@@ -134,7 +168,7 @@ export default function PowerFlowPage() {
 
     // Try real backend endpoint first
     try {
-      const url = `${import.meta.env.VITE_API_URL || ''}/api/v1/lv/powsybl-power-flow?ev_surge=${evSurge}`
+      const url = `${import.meta.env.VITE_API_URL || ''}/api/v1/lv/powsybl-power-flow?ev_surge=${evSurge}&slot=${slotIndex}`
       const res = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` } })
       if (res.ok) {
         const data = await res.json()
@@ -147,7 +181,7 @@ export default function PowerFlowPage() {
 
     // DistFlow fallback
     await new Promise(r => setTimeout(r, 1200))
-    const r = solveFrontend(evSurge)
+    const r = solveFrontend(slotIndex)
     setEngine('DistFlow')
     setResult(r)
     setRunning(false)
@@ -183,29 +217,29 @@ export default function PowerFlowPage() {
           </div>
         </div>
 
-        {/* Scenario toggle */}
-        <div>
-          <div className="text-xs text-gray-400 mb-1.5">Scenario</div>
-          <div className="flex rounded-lg overflow-hidden border border-gray-600">
-            <button
-              onClick={() => { setEvSurge(false); setResult(null) }}
-              className={clsx(
-                'px-3 py-1.5 text-xs font-medium transition-colors',
-                !evSurge ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+        {/* Time of day slider */}
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-400">Time of day</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-white font-mono">{slotToTime(slotIndex)}</span>
+              {evSurge && (
+                <span className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-300 border border-blue-700/40 px-1.5 py-0.5 rounded">
+                  <Car className="w-2.5 h-2.5" /> EV surge active
+                </span>
               )}
-            >
-              Normal
-            </button>
-            <button
-              onClick={() => { setEvSurge(true); setResult(null) }}
-              className={clsx(
-                'px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5',
-                evSurge ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'
-              )}
-            >
-              <Car className="w-3 h-3" />
-              EV Surge (18:00)
-            </button>
+            </div>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={47}
+            value={slotIndex}
+            onChange={(e) => { setSlotIndex(Number(e.target.value)); setResult(null) }}
+            className="w-full accent-indigo-500 cursor-pointer"
+          />
+          <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+            <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:30</span>
           </div>
         </div>
 
@@ -215,7 +249,7 @@ export default function PowerFlowPage() {
           className="btn-primary flex items-center gap-2 flex-shrink-0"
         >
           {running && <Loader2 className="w-4 h-4 animate-spin" />}
-          {running ? 'Solving…' : 'Run Powsybl'}
+          {running ? 'Solving…' : `Run Power Flow · ${slotToTime(slotIndex)}`}
         </button>
       </div>
 
@@ -224,7 +258,7 @@ export default function PowerFlowPage() {
         <div className="card flex flex-col items-center justify-center py-12 text-gray-400">
           <Loader2 className="w-8 h-8 animate-spin mb-3 text-indigo-400" />
           <p className="text-sm font-medium">Running power flow…</p>
-          <p className="text-xs text-gray-500 mt-1">{evSurge ? 'EV surge' : 'Normal'} · 250 kVA · 3 branches</p>
+          <p className="text-xs text-gray-500 mt-1">{slotToTime(slotIndex)} · 250 kVA · 3 branches</p>
         </div>
       )}
 
@@ -232,7 +266,7 @@ export default function PowerFlowPage() {
       {!result && !running && (
         <div className="card flex flex-col items-center justify-center py-12 text-gray-500">
           <Zap className="w-8 h-8 mb-3 text-gray-600" />
-          <p className="text-sm">Select a scenario and click <strong className="text-gray-400">Run Powsybl</strong></p>
+          <p className="text-sm">Select a time and click <strong className="text-gray-400">Run Power Flow</strong></p>
         </div>
       )}
 

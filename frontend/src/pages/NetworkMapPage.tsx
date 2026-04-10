@@ -60,6 +60,7 @@ export default function NetworkMapPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef          = useRef<L.Map | null>(null)
   const groupsRef       = useRef<Record<string, L.LayerGroup>>({})
+  const dtMarkersRef    = useRef<Record<string, L.CircleMarker>>({})
 
   const [selectedDT, setSelectedDT] = useState<DistributionTransformer | null>(null)
   const [activeLayers, setActiveLayers] = useState<Set<string>>(new Set(ALL_LAYERS))
@@ -106,7 +107,7 @@ export default function NetworkMapPage() {
     groups[LN.DT] = L.layerGroup()
     DISTRIBUTION_TRANSFORMERS.forEach(dt => {
       const color = dtStatusColor(dt.status)
-      L.circleMarker([dt.lat, dt.lng], {
+      const marker = L.circleMarker([dt.lat, dt.lng], {
         radius: 9, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.9,
       })
         .bindPopup(
@@ -115,6 +116,7 @@ export default function NetworkMapPage() {
         )
         .on('click', () => setSelectedDT(dt))
         .addTo(groups[LN.DT])
+      dtMarkersRef.current[dt.id] = marker
     })
 
     // ── DER Assets ──
@@ -161,6 +163,15 @@ export default function NetworkMapPage() {
 
     return () => { map.remove(); mapRef.current = null }
   }, [])
+
+  // ── Fly to selected DT ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!selectedDT || !mapRef.current) return
+    mapRef.current.flyTo([selectedDT.lat, selectedDT.lng], 16, { duration: 1.2 })
+    setTimeout(() => {
+      dtMarkersRef.current[selectedDT.id]?.openPopup()
+    }, 1300)
+  }, [selectedDT])
 
   // ── Reactive layer show/hide (the fix) ───────────────────────────────────
   useEffect(() => {
@@ -245,8 +256,41 @@ export default function NetworkMapPage() {
 // ── Network Summary Panel ─────────────────────────────────────────────────────
 
 function NetworkSummaryPanel({ onSelectDT }: { onSelectDT: (dt: DistributionTransformer) => void }) {
+  const distressedDTList = DISTRIBUTION_TRANSFORMERS.filter(d => d.status !== 'NORMAL')
   return (
     <div className="p-4 max-w-5xl mx-auto">
+
+      {/* Violations section */}
+      {distressedDTList.length > 0 && (
+        <div className="mb-4 border border-red-700/60 bg-red-950/20 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
+            <span className="text-xs font-semibold text-red-400 uppercase tracking-wider">
+              {distressedDTList.length} Transformer Violation{distressedDTList.length > 1 ? 's' : ''} — Action Required
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            {distressedDTList.map(dt => (
+              <div
+                key={dt.id}
+                onClick={() => onSelectDT(dt)}
+                className="flex items-center justify-between cursor-pointer rounded px-3 py-2 bg-red-900/20 hover:bg-red-900/40 border border-red-800/40 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className={clsx(
+                    'text-[10px] font-bold px-1.5 py-0.5 rounded',
+                    dt.status === 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-amber-600 text-white'
+                  )}>{dt.status}</span>
+                  <span className="text-xs text-gray-200 font-medium">{dt.name}</span>
+                  <span className="text-xs text-gray-500">{dt.loading_pct}% load · {dt.voltage_v} V</span>
+                </div>
+                <span className="text-[10px] text-red-400 italic">Click to inspect on map →</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Top stats row */}
       <div className="grid grid-cols-4 gap-3 mb-4">
         {[
@@ -283,9 +327,15 @@ function NetworkSummaryPanel({ onSelectDT }: { onSelectDT: (dt: DistributionTran
                 <tr
                   key={dt.id}
                   onClick={() => onSelectDT(dt)}
-                  className="border-b border-gray-800/50 hover:bg-gray-800/40 cursor-pointer transition-colors"
+                  className={clsx(
+                    'border-b border-gray-800/50 hover:bg-gray-800/40 cursor-pointer transition-colors',
+                    dt.status !== 'NORMAL' && 'bg-red-950/10'
+                  )}
                 >
-                  <td className="py-1.5 text-gray-200">{dt.name}</td>
+                  <td className={clsx(
+                    'py-1.5 text-gray-200',
+                    dt.status !== 'NORMAL' && 'border-l-2 border-red-500 pl-2'
+                  )}>{dt.name}</td>
                   <td className="py-1.5 text-right font-mono text-gray-300">{dt.loading_pct}%</td>
                   <td className="py-1.5 text-right font-mono text-gray-300">{dt.voltage_v} V</td>
                   <td className="py-1.5 text-right">

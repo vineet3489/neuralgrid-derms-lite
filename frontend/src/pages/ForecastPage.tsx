@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts'
-import { RefreshCw, AlertTriangle } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 
 const DT_LIMIT = 225
@@ -75,6 +76,7 @@ function ForecastTooltip({ active, payload, label }: any) {
 }
 
 export default function ForecastPage() {
+  const navigate = useNavigate()
   const [data, setData] = useState<ForecastSlot[]>(() => generateForecastData())
   const [refreshing, setRefreshing] = useState(false)
 
@@ -91,6 +93,17 @@ export default function ForecastPage() {
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
+      {/* Workflow steps banner */}
+      <div className="flex items-center gap-1 text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 mb-1">
+        <span className="text-indigo-400 font-medium">Step 1</span>
+        <span className="mx-1.5 text-gray-700">·</span>
+        <span className="font-medium text-white">Look-Ahead</span>
+        <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-600" />
+        <span>Step 2 · OE Dispatch</span>
+        <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-600" />
+        <span>Step 3 · IEC Messages</span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -121,6 +134,14 @@ export default function ForecastPage() {
               Peak {peakSlot.totalLoad.toFixed(0)} kW · {peakSlot.dtPct.toFixed(0)}% of {DT_LIMIT} kW limit ·
               {' '}{violations.length} slot{violations.length > 1 ? 's' : ''} in violation
             </p>
+            <div className="mt-2">
+              <button
+                onClick={() => navigate('/oe')}
+                className="inline-flex items-center gap-1.5 text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1.5 rounded font-medium transition-colors"
+              >
+                Generate Operating Envelope <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       )}
