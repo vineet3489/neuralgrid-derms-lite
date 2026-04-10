@@ -2,16 +2,27 @@ import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useGridStore } from '../stores/gridStore'
-import { Map, Activity, Radio, TrendingUp, LogOut, Zap, Bell, MessageSquare, BarChart2 } from 'lucide-react'
+import {
+  Map, Activity, Radio, TrendingUp, LogOut, Zap, Bell, MessageSquare, BarChart2,
+  Layers, Users, Cpu, Shield,
+} from 'lucide-react'
 import clsx from 'clsx'
 
-const NAV_ITEMS = [
-  { path: '/network', label: 'Grid Network', icon: Map },
-  { path: '/powerflow', label: 'LV Power Flow', icon: Activity },
-  { path: '/envelope', label: 'Operating Envelope', icon: Radio },
-  { path: '/d4g',      label: 'D4G Messages',       icon: MessageSquare },
-  { path: '/forecast', label: 'Forecasting', icon: TrendingUp },
-  { path: '/baseline', label: 'Baseline vs Flex', icon: BarChart2 },
+// OPERATOR nav items (all users see these)
+const OPERATOR_NAV = [
+  { path: '/network',    label: 'Network',      icon: Map },
+  { path: '/powerflow',  label: 'Power Flow',   icon: Activity },
+  { path: '/oe',         label: 'OE Dispatch',  icon: Radio },
+  { path: '/messages',   label: 'IEC Messages', icon: MessageSquare },
+  { path: '/lookahead',  label: 'Look-Ahead',   icon: TrendingUp },
+  { path: '/settlement', label: 'Settlement',   icon: BarChart2 },
+]
+
+// ADMIN nav items (only for admin/superuser)
+const ADMIN_NAV = [
+  { path: '/admin/programs',       label: 'Programs',       icon: Layers },
+  { path: '/admin/counterparties', label: 'Counterparties', icon: Users },
+  { path: '/admin/assets',         label: 'Assets',         icon: Cpu },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -19,6 +30,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { alerts, wsConnected } = useGridStore()
   const navigate = useNavigate()
   const criticalAlerts = alerts.filter((a) => !a.is_acknowledged && a.severity === 'CRITICAL')
+
+  // Derive user role from deployment_roles
+  const userRole = user?.deployments?.[0]?.role || ''
+  const isAdmin = user?.is_superuser || ['DEPLOY_ADMIN', 'PROG_MGR', 'CONTRACT_MGR'].includes(userRole)
 
   return (
     <div className="flex h-screen bg-gray-950 overflow-hidden">
@@ -32,8 +47,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="text-[10px] text-gray-400">DERMS Lite</div>
           </div>
         </div>
-        <nav className="flex-1 p-2 space-y-0.5">
-          {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
+        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+          {OPERATOR_NAV.map(({ path, label, icon: Icon }) => (
             <NavLink key={path} to={path}
               className={({ isActive }) => clsx(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
@@ -44,6 +59,30 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {label}
             </NavLink>
           ))}
+
+          {isAdmin && (
+            <>
+              <div className="pt-3 pb-1 px-3 flex items-center gap-2">
+                <div className="flex-1 h-px bg-gray-700" />
+                <div className="flex items-center gap-1 text-[10px] text-gray-500 font-medium uppercase tracking-wide flex-shrink-0">
+                  <Shield className="w-3 h-3" />
+                  Admin
+                </div>
+                <div className="flex-1 h-px bg-gray-700" />
+              </div>
+              {ADMIN_NAV.map(({ path, label, icon: Icon }) => (
+                <NavLink key={path} to={path}
+                  className={({ isActive }) => clsx(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
+                    isActive ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800'
+                  )}
+                >
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  {label}
+                </NavLink>
+              ))}
+            </>
+          )}
         </nav>
         <div className="p-3 border-t border-gray-800">
           <div className="flex items-center gap-2 mb-2">

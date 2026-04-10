@@ -13,6 +13,9 @@ import OperatingEnvelopePage from './pages/OperatingEnvelopePage'
 import ForecastPage from './pages/ForecastPage'
 import D4GMessagesPage from './pages/D4GMessagesPage'
 import BaselineFlexPage from './pages/BaselineFlexPage'
+import ProgramsAdminPage from './pages/ProgramsAdminPage'
+import CounterpartiesAdminPage from './pages/CounterpartiesAdminPage'
+import AssetsAdminPage from './pages/AssetsAdminPage'
 
 class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }
@@ -73,10 +76,24 @@ export default function App() {
         <Route path="/" element={<Navigate to="/network" replace />} />
         <Route path="/network" element={<ProtectedRoute><NetworkMapPage /></ProtectedRoute>} />
         <Route path="/powerflow" element={<ProtectedRoute><PowerFlowPage /></ProtectedRoute>} />
+
+        {/* New canonical paths */}
+        <Route path="/oe" element={<ProtectedRoute><OperatingEnvelopePage /></ProtectedRoute>} />
+        <Route path="/messages" element={<ProtectedRoute><D4GMessagesPage /></ProtectedRoute>} />
+        <Route path="/lookahead" element={<ProtectedRoute><ForecastPage /></ProtectedRoute>} />
+        <Route path="/settlement" element={<ProtectedRoute><BaselineFlexPage /></ProtectedRoute>} />
+
+        {/* Legacy paths (kept for backwards compatibility) */}
         <Route path="/envelope" element={<ProtectedRoute><OperatingEnvelopePage /></ProtectedRoute>} />
         <Route path="/d4g" element={<ProtectedRoute><D4GMessagesPage /></ProtectedRoute>} />
         <Route path="/forecast" element={<ProtectedRoute><ForecastPage /></ProtectedRoute>} />
         <Route path="/baseline" element={<ProtectedRoute><BaselineFlexPage /></ProtectedRoute>} />
+
+        {/* Admin routes */}
+        <Route path="/admin/programs" element={<ProtectedRoute><ProgramsAdminPage /></ProtectedRoute>} />
+        <Route path="/admin/counterparties" element={<ProtectedRoute><CounterpartiesAdminPage /></ProtectedRoute>} />
+        <Route path="/admin/assets" element={<ProtectedRoute><AssetsAdminPage /></ProtectedRoute>} />
+
         <Route path="*" element={<Navigate to="/network" replace />} />
       </Routes>
     </>

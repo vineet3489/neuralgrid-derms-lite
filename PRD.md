@@ -1,5 +1,5 @@
 # Neural Grid — L&T Digital Energy Solutions DERMS Platform
-## Product Requirements Document (PRD) v1.4
+## Product Requirements Document (PRD) v1.5
 **Date:** April 2026
 **Author:** L&T Digital Energy Solutions — Smart Grid Division
 **Status:** Active Development
@@ -9,6 +9,7 @@
 - **v1.2:** Full D4G IEC 62746-4 spec compliance — `ReferenceEnergyCurve*_MarketDocument` format, EIC coding scheme (A01), MAW units, PT30M resolution, four Kafka topics, `MessageDocumentHeader`. SSEN IEC MarketDocument formats. Removed FK constraint on `audit_events.user_id`.
 - **v1.3:** Operator Console guided workflow, role-based navigation, D4G quality codes (A04/A06/A03) per OE slot, ETRAA Archive integration, DMS-passthrough forecast model, Simulation Parameters tab, production deployment on Render.com (Docker + PostgreSQL).
 - **v1.4:** Auzances 250 kVA 3-branch reference LV network (BR-A/B/C, 65 households, EV surge scenario). Powsybl OpenLoadFlow integration (`pypowsybl`) replacing pure-Python DistFlow as primary solver (DistFlow retained as fallback). Correct 5-step D4G message sequence (A38 → REC/A26 → A26 → A32 → A16) with A32 Activation detail. DT thermal limit corrected to 225 kW (250 kVA × 0.9 pf). Voltage deviation chart + FlexOffer A26 control panel on Forecast page. Constraint column + A38 badge on Operating Envelope page. New Baseline vs Flex comparison dashboard (§28).
+- **v1.5:** Admin/Operator role split with dedicated admin pages (Programs, Counterparties, Assets). LinDistFlow physics-based 48-slot OE replacing heuristic. Page renames aligned with DERIM v3/v4 workflow (OE Dispatch, IEC Messages, Look-Ahead, Settlement). Simplified UI across all pages. Real D4G A32 Activation API integration. Programs are DT-scoped; binding constraint discovered by Powsybl at dispatch time (§31–§35).
 
 ---
 
@@ -44,6 +45,12 @@
 28. [Auzances Demo Network & EV Scenario *(v1.4)*](#28-auzances-demo-network--ev-scenario-v14)
 29. [Powsybl Power Flow Integration *(v1.4)*](#29-powsybl-power-flow-integration-v14)
 30. [Baseline vs Flex Dashboard *(v1.4)*](#30-baseline-vs-flex-dashboard-v14)
+31. [Admin / Operator Role Split *(v1.5)*](#31-admin--operator-role-split-v15)
+32. [Program Registration *(v1.5)*](#32-program-registration-v15)
+33. [Counterparty Management *(v1.5)*](#33-counterparty-management-v15)
+34. [Asset Registry *(v1.5)*](#34-asset-registry-v15)
+35. [LinDistFlow 48-Slot OE *(v1.5)*](#35-lindistflow-48-slot-oe-v15)
+36. [Page Rename & UI Simplification *(v1.5)*](#36-page-rename--ui-simplification-v15)
 
 ---
 
@@ -2003,4 +2010,282 @@ Provides a before/after comparison of the EV surge flex activation event, showin
 
 ---
 
-*Document updated for Neural Grid v1.4 — April 2026. For technical questions contact the L&T Smart Grid Division.*
+---
+
+## 31. Admin / Operator Role Split *(v1.5)*
+
+### 31.1 Motivation
+
+The DERIM v3/v4 workflow separates two distinct personas:
+
+| Persona | Responsibility |
+|---|---|
+| **Admin** | Registers Flex Programs, Counterparties, and Assets before any dispatch event occurs |
+| **Operator** | Monitors the network, detects violations, selects a registered program, and drives the flex dispatch workflow |
+
+### 31.2 Role Mapping
+
+| Deployment Role | Persona | Navigation Scope |
+|---|---|---|
+| `DEPLOY_ADMIN`, `PROG_MGR`, `CONTRACT_MGR`, `is_superuser` | Admin | Operator pages + Admin section (Programs, Counterparties, Assets) |
+| `GRID_OPS`, `VIEWER` | Operator | Network · Power Flow · OE Dispatch · IEC Messages · Look-Ahead · Settlement |
+
+### 31.3 Navigation Structure
+
+**Operator section (all users):**
+
+| Route | Label | Icon |
+|---|---|---|
+| `/network` | Network | `Map` |
+| `/power-flow` | Power Flow | `Zap` |
+| `/oe` | OE Dispatch | `Radio` |
+| `/messages` | IEC Messages | `MessageSquare` |
+| `/lookahead` | Look-Ahead | `TrendingUp` |
+| `/settlement` | Settlement | `BarChart2` |
+
+**Admin section (admin roles only, separated by Shield icon divider):**
+
+| Route | Label | Icon |
+|---|---|---|
+| `/admin/programs` | Programs | `Layers` |
+| `/admin/counterparties` | Counterparties | `Users` |
+| `/admin/assets` | Assets | `Package` |
+
+Legacy routes (`/envelope`, `/d4g`, `/forecast`, `/baseline`) are preserved as aliases to avoid breaking bookmarks.
+
+---
+
+## 32. Program Registration *(v1.5)*
+
+### 32.1 Concept
+
+A **Flex Program** is the contractual vehicle that defines how the DNO can call on aggregated flexibility from a Counterparty (e.g. D4G). Programs are **DT-scoped** — they apply to all enrolled assets behind a specific distribution transformer, regardless of which branch the assets physically sit on.
+
+The binding constraint (e.g. "Branch B thermal") is a network property discovered by Powsybl at dispatch time and recorded in the violation event — not in the program definition.
+
+### 32.2 Data Model
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Auto-generated |
+| `name` | string | Human-readable (e.g. "EDF Réseau Peak Flex") |
+| `dt_node_id` | FK → GridNode | Distribution transformer this program applies to |
+| `constraint_type` | enum | `thermal` \| `voltage` \| `both` |
+| `max_flex_kw` | float | Maximum aggregate curtailment the program can deliver |
+| `min_flex_kw` | float | Minimum activation threshold |
+| `price_eur_per_mwh` | float | Settlement price |
+| `lead_time_min` | int | Activation lead time in minutes |
+| `validity_start` | date | Program validity window |
+| `validity_end` | date | Program validity window |
+| `status` | enum | `active` \| `suspended` \| `expired` |
+
+### 32.3 UI
+
+- **Route:** `/admin/programs`
+- **Table columns:** Program ID · Name · Constraint Type · DT · Max Flex kW · Price (€/MWh) · Lead Time · Status
+- **Create modal:** All fields above with validation
+- **Static demo:** "EDF Réseau Peak Flex · thermal · DT-AUZ-001 · 245 kW · €85/MWh · 15 min · active"
+
+### 32.4 Operator Dispatch Link
+
+When the operator detects a violation on the Network/Power Flow pages, they select a Program to dispatch against. The selected program's `dt_node_id` constrains which Counterparty assets are activated and sets the settlement price used in the A16 document.
+
+---
+
+## 33. Counterparty Management *(v1.5)*
+
+### 33.1 Concept
+
+A **Counterparty** is the flexibility aggregator (e.g. Digital4Grids) that enrolls assets behind a DT and responds to flex requests. The Counterparty record stores the API credentials needed to submit real IEC A32 Activation documents.
+
+### 33.2 Data Model
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Auto-generated |
+| `name` | string | Display name (e.g. "Digital4Grids") |
+| `market_mrid` | string | IEC EIC mRID (17-char, e.g. 17XTESTD4GRID02T) |
+| `api_base_url` | string | D4G API base URL (e.g. `https://lnt.digital4grids.com`) |
+| `api_key` | string (encrypted) | `X-API-Key` header value for POST /v1/activation |
+| `resource_group_id` | string | Used for `/v1/baseline/{id}` and `/v1/ods/{id}` |
+| `country` | string | ISO-3166 country code |
+| `status` | enum | `active` \| `inactive` |
+
+### 33.3 D4G API Integration
+
+The Counterparty record provides the credentials used when the A32 step fires:
+
+```
+POST {api_base_url}/v1/activation
+X-API-Key: {api_key}
+Content-Type: application/json
+
+{
+  "mRID": "...",
+  "type": "A32",
+  "SenderMarketParticipant": { "mRID": "17X100A100A0001A", "roleType": "A04" },
+  "ReceiverMarketParticipant": { "mRID": "{market_mrid}", "roleType": "A27" },
+  "TimeSeries": [{ "businessType": "B83", "FlowDirection": "A02",
+    "MeasurementUnit": "MAW", "Period": { "resolution": "PT30M", ... },
+    "AttributeInstanceComponent": [{ "attribute": "DRO", "value": 15 }] }]
+}
+```
+
+The A32 is the only document type sent to a live D4G API endpoint. A38/A26/A16 remain simulated (D4G `/v1/baseline` and `/v1/ods` endpoints are WIP stubs).
+
+### 33.4 UI
+
+- **Route:** `/admin/counterparties`
+- **Table columns:** Name · Market mRID · D4G API URL · Country · Assets · Status
+- **Create/Edit modal:** All fields including API Key (password-masked input)
+- **Static demo:** "Digital4Grids · 17XTESTD4GRID02T · https://lnt.digital4grids.com · FR · 3 assets · active"
+
+---
+
+## 34. Asset Registry *(v1.5)*
+
+### 34.1 Concept
+
+An **Asset** is an individual DER (EV charger, solar PV, BESS, heat pump, flexible load) enrolled under a Counterparty for flex dispatch. Assets are associated with a branch for power flow modelling purposes, but programs are DT-scoped.
+
+### 34.2 Data Model
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Auto-generated |
+| `asset_ref` | string | External reference ID (e.g. "EVC-B01") |
+| `type` | enum | `EV_CHARGER` \| `SOLAR_PV` \| `BESS` \| `HEAT_PUMP` \| `FLEXIBLE_LOAD` |
+| `counterparty_id` | FK → Counterparty | Owner aggregator |
+| `program_id` | FK → Program | Enrolled flex program |
+| `phase` | enum | `A` \| `B` \| `C` |
+| `branch_ref` | string | LV branch (BR-A/B/C) for power flow input |
+| `capacity_kw` | float | Rated capacity |
+| `status` | enum | `enrolled` \| `suspended` \| `disconnected` |
+
+### 34.3 Asset Types & Visual Badges
+
+| Type | Badge Color |
+|---|---|
+| EV Charger | Orange |
+| Solar PV | Yellow |
+| BESS | Blue |
+| Heat Pump | Green |
+| Flexible Load | Gray |
+
+### 34.4 UI
+
+- **Route:** `/admin/assets`
+- **Table columns:** Asset ID · Counterparty · Type · Phase · Capacity kW · Branch · Program · Status
+- **Static demo:** EVC-B01/02/03 (EV chargers, Phase B, 120/110/120 kW, BR-B, Digital4Grids, EDF Réseau Peak Flex, enrolled)
+
+---
+
+## 35. LinDistFlow 48-Slot OE *(v1.5)*
+
+### 35.1 Method
+
+The OE Dispatch page now uses **LinDistFlow** (Baran-Wu linearised DistFlow, 1989) as the physics-based OE solver, replacing the previous slot-count heuristic. This is the industry-standard method used by real DNSPs (SAPN, AusNet, WPD) for day-ahead OE batch computation.
+
+**Linearisation:** ΔV ≈ (R·P + X·Q) / V_nom around V_nom = 1.0 pu
+
+### 35.2 Backend Implementation
+
+- **File:** `backend/app/lv_network/lindistflow_oe.py`
+- **Endpoint:** `GET /api/v1/lv-network/lindistflow-oe?dt_id=DT-AUZ-001`
+
+**Network constants (Auzances LV, 95mm² XLPE):**
+
+| Parameter | Value |
+|---|---|
+| Cable R | 0.25 Ω/km |
+| Cable X | 0.08 Ω/km |
+| Power factor | 0.9 (tan φ ≈ 0.484) |
+| DT thermal limit | 225 kW (250 kVA × 0.9 pf) |
+| DT reverse limit | 90 kW |
+| V_MIN | 0.90 pu (IEC 60038 / EN 50160 French LV statutory: 230V −10%) |
+| V_MAX | 1.10 pu |
+
+**Base loads (day-ahead average, not peak):**
+
+| Branch | Households | Base kW | Length |
+|---|---|---|---|
+| BR-A | 21 | 46 kW | 461 m |
+| BR-B | 34 | 58 kW | 715 m |
+| BR-C | 10 | 27 kW | 185 m |
+
+**Diurnal multiplier:** Residential weekday profile, 48 × 30-min slots. Peak multiplier 1.70 at slots 36–43 (18:00–21:30). EV surge (+350 kW on BR-B) applied additively at slots 36–44.
+
+**Constraints per slot:**
+1. DT thermal: Σ branch loads ≤ 225 kW
+2. DT reverse: reverse flow ≤ 90 kW
+3. Voltage: V_end ∈ [0.90, 1.10] pu for each branch
+
+**OE outputs:**
+- `quantity_Maximum` (kW): min(thermal headroom, voltage drop headroom)
+- `quantity_Minimum` (kW): −min(DT reverse limit, voltage rise headroom)
+- `qualityCode`: A06 (normal) / A08 (degraded/constrained)
+- Per-slot physics fields: `total_load_kw`, `dt_loading_pct`, `min_v_end_pu`, branch voltages and loads, `ev_surge` flag
+
+### 35.3 Frontend
+
+The OE Dispatch page (`/oe`) calls `lindistflowOE('DT-AUZ-001')` and falls back to a heuristic if the backend is unavailable.
+
+**KPI row above the table:**
+- Constrained slots (q_max = 0)
+- Tightest headroom (minimum q_max)
+- EV surge slots count
+
+**Table extra columns:** DT Load % · V_min (pu) · EV badge
+
+**Single action button:** "Generate & Send A38" — triggers OE calculation and simulates A38 dispatch in one click.
+
+---
+
+## 36. Page Rename & UI Simplification *(v1.5)*
+
+### 36.1 Page Renames
+
+Aligned with DERIM v3/v4 terminology and D4G operator screenshots:
+
+| Old Name | New Name | Route |
+|---|---|---|
+| Operating Envelope | OE Dispatch | `/oe` (was `/envelope`) |
+| D4G Messages | IEC Messages | `/messages` (was `/d4g`) |
+| Forecasting | Look-Ahead | `/lookahead` (was `/forecast`) |
+| Baseline vs Flex | Settlement | `/settlement` (was `/baseline`) |
+
+### 36.2 Per-Page Simplifications
+
+**Power Flow (`/power-flow`):**
+- Replaced 3-column prosumer card grid with clean DT summary card + branch table
+- DT summary: ID, total load/225 kW bar, loading%, status badge
+- Branch table: Branch · Households · Load kW · Loading% · V_end pu · Status
+- EV charger sub-table shown only when EV surge is active
+
+**OE Dispatch (`/oe`):**
+- Removed separate start/end time pickers and D4G endpoint/protocol fields
+- Merged "Generate" + "Send A38" into single **Generate & Send A38** button
+- Added 3-KPI header row (constrained slots, tightest headroom, EV surge slots)
+- Added `DT Load%` and `V_min(pu)` columns from LinDistFlow physics output
+- Success banner shows A38 mRID after send
+
+**IEC Messages (`/messages`):**
+- Removed Live Sim tab
+- Clean 5-step vertical timeline: A38 → REC/A26 → A26 → A32 → A16
+- A32 step fires real `POST /v1/activation` to D4G live API
+- Message log table at bottom
+
+**Look-Ahead (`/lookahead`):**
+- Removed voltage deviation chart and FlexOffer panel
+- Single 48-slot bar chart: DT load vs 225 kW limit, EV surge highlighted
+- Violation summary banner + constrained slots table
+
+**Settlement (`/settlement`):**
+- D4G Flexibility Settlement Desk style
+- KPI cards: Committed kWh · Delivered kWh · Performance % · Net Payment €
+- Grouped bar chart: D4G Baseline vs Actual Metered per slot
+- Slot performance table (per DERIM v4 §7.3)
+
+---
+
+*Document updated for Neural Grid v1.5 — April 2026. For technical questions contact the L&T Smart Grid Division.*

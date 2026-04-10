@@ -1,9 +1,8 @@
 import React, { useState } from 'react'
 import {
-  DEMO_DT, LV_BRANCHES_DEMO, SPG_GROUPS, EV_CHARGERS_DEMO,
+  DEMO_DT, LV_BRANCHES_DEMO, EV_CHARGERS_DEMO,
 } from '../data/auzanceNetwork'
-import type { ProsumerHome, DERDevice } from '../data/auzanceNetwork'
-import { AlertTriangle, CheckCircle, Loader2, Sun, Battery, Zap, Thermometer, Car } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Loader2, Zap, Car } from 'lucide-react'
 import clsx from 'clsx'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -54,7 +53,6 @@ function solveFrontend(evSurge: boolean): PowerFlowResult {
   const branches: BranchResult[] = LV_BRANCHES_DEMO.map((br) => {
     const totalLoad = br.base_load_kw + (evSurge ? br.ev_load_kw : 0)
     const q = totalLoad * Math.tan(Math.acos(PF))
-    // DistFlow voltage drop
     const delta_v_sq = 2 * (br.r_ohm * totalLoad * 1000 + br.x_ohm * q * 1000) / (V_NOM ** 2)
     const v_end_pu = Math.sqrt(Math.max(1.0 - delta_v_sq, 0.01))
     const s_kva = Math.sqrt(totalLoad ** 2 + q ** 2)
@@ -92,7 +90,7 @@ function solveFrontend(evSurge: boolean): PowerFlowResult {
   const violations = branches.filter(b => b.voltage_status !== 'NORMAL' || b.thermal_status !== 'NORMAL')
 
   return {
-    engine: 'Powsybl (DistFlow fallback)',
+    engine: 'DistFlow',
     converged: true,
     scenario: evSurge ? 'ev_surge' : 'normal',
     dt: {
@@ -110,220 +108,16 @@ function solveFrontend(evSurge: boolean): PowerFlowResult {
   }
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-const DER_ICON: Record<string, React.ReactNode> = {
-  SOLAR_PV:   <Sun className="w-3 h-3 text-yellow-400" />,
-  BESS:       <Battery className="w-3 h-3 text-purple-400" />,
-  EV_CHARGER: <Car className="w-3 h-3 text-blue-400" />,
-  HEAT_PUMP:  <Thermometer className="w-3 h-3 text-orange-400" />,
-}
-
-function DERBadge({ der }: { der: DERDevice }) {
-  const isEV = der.type === 'EV_CHARGER'
-  const kw = Math.abs(der.current_kw)
-  return (
-    <span className={clsx(
-      'inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded border',
-      isEV && der.current_kw > 50
-        ? 'bg-blue-900/60 border-blue-700/50 text-blue-300'
-        : der.current_kw < 0
-          ? 'bg-yellow-900/30 border-yellow-700/30 text-yellow-300'
-          : 'bg-gray-700/50 border-gray-600/40 text-gray-400'
-    )}>
-      {DER_ICON[der.type]}
-      {der.current_kw < 0 ? '-' : '+'}{kw.toFixed(1)} kW
-      {der.soc_pct !== undefined && <span className="text-gray-500 ml-0.5">{der.soc_pct}%</span>}
-    </span>
-  )
-}
-
-function HomeRow({ home }: { home: ProsumerHome }) {
-  const isEVSurging = home.ders.some(d => d.type === 'EV_CHARGER' && d.current_kw > 50)
-  return (
-    <div className={clsx(
-      'flex items-start gap-2 py-1.5 px-2 rounded text-xs border',
-      isEVSurging
-        ? 'bg-blue-950/40 border-blue-800/40'
-        : home.net_kw < 0
-          ? 'bg-yellow-950/20 border-yellow-900/20'
-          : 'bg-gray-800/40 border-gray-700/30'
-    )}>
-      <span className="text-gray-400 w-3.5 flex-shrink-0">🏠</span>
-      <div className="flex-1 min-w-0">
-        <div className="text-gray-300 truncate text-[11px]">{home.label}</div>
-        <div className="flex flex-wrap gap-0.5 mt-0.5">
-          {home.ders.map((d) => <DERBadge key={d.type + d.current_kw} der={d} />)}
-        </div>
-      </div>
-      <span className={clsx(
-        'text-[11px] font-mono font-semibold flex-shrink-0',
-        home.net_kw < 0 ? 'text-yellow-400' : isEVSurging ? 'text-blue-400' : 'text-gray-300'
-      )}>
-        {home.net_kw > 0 ? '+' : ''}{home.net_kw.toFixed(1)} kW
-      </span>
-    </div>
-  )
-}
-
-function loadingColor(pct: number): string {
-  if (pct > 100) return '#ef4444'
-  if (pct > 75) return '#f59e0b'
-  return '#22c55e'
-}
-
-function LoadingBar({ pct, limit }: { pct: number; limit: number }) {
-  const capped = Math.min(pct, 200)
-  const color = loadingColor(pct)
-  return (
-    <div className="relative h-3 bg-gray-700 rounded-full overflow-hidden">
-      <div
-        className="h-full rounded-full transition-all duration-500"
-        style={{ width: `${Math.min(capped / 2, 100)}%`, backgroundColor: color }}
-      />
-      {pct > 100 && (
-        <div className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white">
-          {pct.toFixed(0)}%
-        </div>
-      )}
-    </div>
-  )
-}
-
-function BranchCard({
-  branch,
-  spg,
-  evSurge,
-}: {
-  branch: BranchResult
-  spg: typeof SPG_GROUPS[0] | undefined
-  evSurge: boolean
-}) {
-  const isCritical = branch.thermal_status === 'CRITICAL' || branch.voltage_status === 'CRITICAL'
-  const isWarning = !isCritical && (branch.thermal_status === 'WARNING' || branch.voltage_status !== 'NORMAL')
-
-  return (
-    <div className={clsx(
-      'rounded-xl border p-4 space-y-3 flex flex-col',
-      isCritical
-        ? 'bg-red-950/20 border-red-700/50'
-        : isWarning
-          ? 'bg-amber-950/20 border-amber-700/40'
-          : 'bg-gray-800/60 border-gray-700/40'
-    )}>
-      {/* Branch header */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className={clsx(
-              'text-xs font-bold px-2 py-0.5 rounded',
-              isCritical ? 'bg-red-800/60 text-red-300' : isWarning ? 'bg-amber-800/60 text-amber-300' : 'bg-gray-700 text-gray-300'
-            )}>Phase {branch.phase}</span>
-            <span className="text-xs text-gray-400">{branch.length_m} m · {branch.households} homes</span>
-          </div>
-          <div className={clsx(
-            'text-2xl font-bold mt-1',
-            isCritical ? 'text-red-400' : isWarning ? 'text-amber-400' : 'text-green-400'
-          )}>
-            {branch.total_load_kw} <span className="text-sm font-normal text-gray-400">kW</span>
-          </div>
-          {branch.ev_load_kw > 0 && (
-            <div className="text-xs text-blue-400 mt-0.5">
-              Base {branch.base_load_kw} + EV {branch.ev_load_kw} kW
-            </div>
-          )}
-        </div>
-        <div className="text-right flex-shrink-0">
-          <div className={clsx(
-            'text-xs font-semibold px-2 py-0.5 rounded border',
-            isCritical
-              ? 'bg-red-900/40 border-red-700/50 text-red-400'
-              : isWarning
-                ? 'bg-amber-900/40 border-amber-700/50 text-amber-400'
-                : 'bg-green-900/30 border-green-700/40 text-green-400'
-          )}>
-            {isCritical ? 'CRITICAL' : isWarning ? 'WARNING' : 'NORMAL'}
-          </div>
-        </div>
-      </div>
-
-      {/* Thermal loading bar */}
-      <div>
-        <div className="flex justify-between text-xs text-gray-400 mb-1">
-          <span>Thermal loading</span>
-          <span style={{ color: loadingColor(branch.loading_pct) }}>
-            {branch.loading_pct.toFixed(0)}% of {branch.ampacity_a}A
-          </span>
-        </div>
-        <LoadingBar pct={branch.loading_pct} limit={branch.ampacity_a} />
-      </div>
-
-      {/* Powsybl metrics */}
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="bg-gray-900/50 rounded-lg p-2">
-          <div className="text-[10px] text-gray-500 mb-0.5">End Voltage</div>
-          <div className={clsx(
-            'text-sm font-bold',
-            branch.voltage_status === 'NORMAL' ? 'text-green-400' : 'text-red-400'
-          )}>
-            {branch.v_end_pu.toFixed(3)} pu
-          </div>
-          <div className="text-[10px] text-gray-500">{branch.v_end_v.toFixed(0)} V</div>
-        </div>
-        <div className="bg-gray-900/50 rounded-lg p-2">
-          <div className="text-[10px] text-gray-500 mb-0.5">Current</div>
-          <div className="text-sm font-bold text-gray-200">{branch.i_a.toFixed(0)} A</div>
-        </div>
-        <div className="bg-gray-900/50 rounded-lg p-2">
-          <div className="text-[10px] text-gray-500 mb-0.5">I²R Loss</div>
-          <div className="text-sm font-bold text-amber-300">{branch.loss_kw.toFixed(1)} kW</div>
-        </div>
-      </div>
-
-      {/* EV chargers in surge mode */}
-      {evSurge && branch.ev_load_kw > 0 && (
-        <div className="bg-blue-950/40 border border-blue-800/40 rounded-lg p-2.5">
-          <div className="text-xs font-semibold text-blue-300 mb-1.5">EV Fast Chargers (active)</div>
-          {EV_CHARGERS_DEMO.filter(e => e.branch_id === branch.branch_id).map(ev => (
-            <div key={ev.id} className="flex items-center justify-between text-xs py-0.5">
-              <span className="flex items-center gap-1 text-gray-300">
-                <Car className="w-3 h-3 text-blue-400" />{ev.label}
-              </span>
-              <span className="text-blue-400 font-mono font-semibold">{ev.kw} kW</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* SPG group */}
-      {spg && (
-        <div className="border-t border-gray-700/40 pt-3">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex-1">
-              <div className="text-xs font-semibold text-indigo-300">{spg.id}</div>
-              <div className="text-[10px] text-gray-500">{spg.name}</div>
-            </div>
-            <div className="text-right text-[10px] text-gray-500">
-              {spg.prosumer_homes.length} prosumers
-            </div>
-          </div>
-
-          {/* Prosumer homes list */}
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {spg.prosumer_homes.map(home => (
-              <HomeRow key={home.id} home={evSurge ? home : { ...home, ders: home.ders.map(d => d.type === 'EV_CHARGER' && d.current_kw > 50 ? { ...d, current_kw: 0 } : d), net_kw: home.ders.reduce((s, d) => s + (d.type === 'EV_CHARGER' && !evSurge ? 0 : d.current_kw < 0 ? d.current_kw : 0), 0) + home.ders.reduce((s, d) => s + (d.type !== 'EV_CHARGER' && d.current_kw > 0 ? d.current_kw : 0), 0) || home.net_kw }} />
-            ))}
-          </div>
-
-          {/* Consumer aggregate */}
-          <div className="mt-1.5 flex items-center justify-between bg-gray-800/60 rounded px-2 py-1.5 text-xs">
-            <span className="text-gray-400">+ {spg.consumer_count} consumer homes</span>
-            <span className="text-gray-300 font-mono">+{spg.consumer_aggregate_kw} kW</span>
-          </div>
-        </div>
-      )}
-    </div>
-  )
+function branchStatusBadge(thermal: string, voltage: string) {
+  const isCritical = thermal === 'CRITICAL' || voltage === 'CRITICAL'
+  const isWarning = !isCritical && (thermal === 'WARNING' || voltage !== 'NORMAL')
+  const cls = isCritical
+    ? 'bg-red-900/40 text-red-400 border-red-800/40'
+    : isWarning
+    ? 'bg-amber-900/40 text-amber-400 border-amber-800/40'
+    : 'bg-green-900/30 text-green-400 border-green-800/30'
+  const label = isCritical ? 'Critical' : isWarning ? 'Warning' : 'Normal'
+  return <span className={clsx('inline-flex px-2 py-0.5 rounded text-[10px] font-semibold border', cls)}>{label}</span>
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -332,6 +126,7 @@ export default function PowerFlowPage() {
   const [evSurge, setEvSurge] = useState(false)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<PowerFlowResult | null>(null)
+  const [engine, setEngine] = useState<'Powsybl' | 'DistFlow'>('DistFlow')
 
   const runPowerFlow = async () => {
     setRunning(true)
@@ -343,41 +138,39 @@ export default function PowerFlowPage() {
       const res = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` } })
       if (res.ok) {
         const data = await res.json()
-        setResult(data)
+        setResult({ ...data, engine: 'Powsybl' })
+        setEngine('Powsybl')
         setRunning(false)
         return
       }
     } catch { /* fall through */ }
 
-    // Frontend solver fallback (matches Powsybl DistFlow results for radial network)
-    await new Promise(r => setTimeout(r, 1800))
-    setResult(solveFrontend(evSurge))
+    // DistFlow fallback
+    await new Promise(r => setTimeout(r, 1200))
+    const r = solveFrontend(evSurge)
+    setEngine('DistFlow')
+    setResult(r)
     setRunning(false)
   }
 
-  const statusColor = (s: string) =>
-    s === 'CRITICAL' ? 'text-red-400' : s === 'WARNING' ? 'text-amber-400' : 'text-green-400'
-
   return (
-    <div className="space-y-4 max-w-6xl mx-auto">
+    <div className="space-y-4 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">LV Power Flow</h1>
+          <h1 className="text-xl font-bold text-white">Power Flow</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            Powered by <span className="text-indigo-300 font-medium">Powsybl</span> (RTE France · OpenLoadFlow) ·
-            250 kVA · 3-branch radial · IEC 60909
+            DT-AUZ-001 · 250 kVA · 3-branch radial · IEC 60909
           </p>
         </div>
-        {/* Powsybl badge */}
         <div className="flex items-center gap-1.5 bg-indigo-950/60 border border-indigo-800/40 rounded-lg px-3 py-1.5">
           <Zap className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="text-xs text-indigo-300 font-medium">Powsybl</span>
-          <span className="text-xs text-gray-500">OpenLoadFlow</span>
+          <span className="text-xs text-indigo-300 font-medium">{result ? engine : 'Powsybl'}</span>
+          {!result && <span className="text-xs text-gray-500">OpenLoadFlow</span>}
         </div>
       </div>
 
-      {/* DT info + scenario selector */}
+      {/* Controls */}
       <div className="card flex items-center gap-6">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
@@ -386,16 +179,14 @@ export default function PowerFlowPage() {
           </div>
           <div className="text-sm font-semibold text-white">{DEMO_DT.name}</div>
           <div className="text-xs text-gray-500 mt-0.5">
-            {DEMO_DT.hv_voltage_kv} kV / {DEMO_DT.lv_voltage_v} V ·
-            Thermal limit: {DEMO_DT.thermal_limit_kw} kW ·
-            65 households across 3 phases
+            {DEMO_DT.hv_voltage_kv} kV / {DEMO_DT.lv_voltage_v} V · Thermal limit: {DEMO_DT.thermal_limit_kw} kW · 65 households
           </div>
         </div>
 
         {/* Scenario toggle */}
         <div>
           <div className="text-xs text-gray-400 mb-1.5">Scenario</div>
-          <div className="flex rounded-lg overflow-hidden border border-gray-600 text-sm">
+          <div className="flex rounded-lg overflow-hidden border border-gray-600">
             <button
               onClick={() => { setEvSurge(false); setResult(null) }}
               className={clsx(
@@ -428,34 +219,18 @@ export default function PowerFlowPage() {
         </button>
       </div>
 
-      {/* EV surge banner */}
-      {evSurge && !result && (
-        <div className="flex items-start gap-3 bg-blue-950/30 border border-blue-800/40 rounded-lg px-4 py-3">
-          <Car className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm text-blue-300 font-medium">EV Surge Scenario — Branch B</p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              3 EV fast chargers active on Phase B: 120 + 110 + 120 = 350 kW additional demand.
-              Base 129 kW → 479 kW total (213% of DT thermal limit). Run Powsybl to see constraint analysis.
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Running state */}
       {running && (
-        <div className="card flex flex-col items-center justify-center py-16 text-gray-400">
+        <div className="card flex flex-col items-center justify-center py-12 text-gray-400">
           <Loader2 className="w-8 h-8 animate-spin mb-3 text-indigo-400" />
-          <p className="text-sm font-medium">Running Powsybl AC load flow…</p>
-          <p className="text-xs text-gray-500 mt-1">
-            OpenLoadFlow · {evSurge ? 'EV surge' : 'normal'} · 250 kVA · 3 branches
-          </p>
+          <p className="text-sm font-medium">Running power flow…</p>
+          <p className="text-xs text-gray-500 mt-1">{evSurge ? 'EV surge' : 'Normal'} · 250 kVA · 3 branches</p>
         </div>
       )}
 
       {/* Empty state */}
       {!result && !running && (
-        <div className="card flex flex-col items-center justify-center py-14 text-gray-500">
+        <div className="card flex flex-col items-center justify-center py-12 text-gray-500">
           <Zap className="w-8 h-8 mb-3 text-gray-600" />
           <p className="text-sm">Select a scenario and click <strong className="text-gray-400">Run Powsybl</strong></p>
         </div>
@@ -464,52 +239,143 @@ export default function PowerFlowPage() {
       {/* Results */}
       {result && (
         <>
-          {/* DT summary */}
+          {/* DT summary row */}
           <div className={clsx(
-            'rounded-xl border px-5 py-4 flex items-center justify-between',
+            'rounded-xl border px-5 py-3 flex items-center gap-6',
             result.dt.status === 'CRITICAL'
               ? 'bg-red-950/20 border-red-700/50'
               : result.dt.status === 'WARNING'
-                ? 'bg-amber-950/20 border-amber-700/40'
-                : 'bg-green-950/10 border-green-800/30'
+              ? 'bg-amber-950/20 border-amber-700/40'
+              : 'bg-green-950/10 border-green-800/30'
           )}>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {result.dt.status === 'CRITICAL'
-                ? <AlertTriangle className="w-5 h-5 text-red-400" />
-                : <CheckCircle className="w-5 h-5 text-green-400" />
+                ? <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                : <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
               }
-              <div>
-                <div className="text-sm font-semibold text-white">
-                  DT Total: {result.dt.total_load_kw} kW / {result.dt.thermal_limit_kw} kW limit
-                </div>
-                <div className="text-xs text-gray-400 mt-0.5">
-                  {result.engine} · {result.dt.loading_pct.toFixed(0)}% utilisation ·
-                  {result.violations.length > 0
-                    ? ` ${result.violations.length} branch violation${result.violations.length > 1 ? 's' : ''}`
-                    : ' no violations'
-                  }
-                </div>
-              </div>
+              <span className="text-sm font-semibold text-white">{result.dt.id}</span>
             </div>
-            <div className={clsx('text-2xl font-bold', statusColor(result.dt.status))}>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-mono text-gray-200">{result.dt.total_load_kw} / {result.dt.thermal_limit_kw} kW</span>
+            </div>
+            <div className={clsx(
+              'text-lg font-bold',
+              result.dt.status === 'CRITICAL' ? 'text-red-400' :
+              result.dt.status === 'WARNING' ? 'text-amber-400' : 'text-green-400'
+            )}>
               {result.dt.loading_pct.toFixed(0)}%
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-gray-500">{result.engine}</span>
+              {result.violations.length > 0 ? (
+                <span className="text-xs text-red-400 font-medium">
+                  {result.violations.length} violation{result.violations.length > 1 ? 's' : ''}
+                </span>
+              ) : (
+                <span className="text-xs text-green-400">No violations</span>
+              )}
             </div>
           </div>
 
-          {/* 3-branch grid */}
-          <div className="grid grid-cols-3 gap-4">
-            {result.branches.map(branch => {
-              const spg = SPG_GROUPS.find(s => s.branch_id === branch.branch_id)
-              return (
-                <BranchCard
-                  key={branch.branch_id}
-                  branch={branch}
-                  spg={spg}
-                  evSurge={result.ev_surge}
-                />
-              )
-            })}
+          {/* Branch table */}
+          <div className="card p-0 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-800/80 border-b border-gray-700">
+                <tr>
+                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Branch</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Households</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Load (kW)</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Loading %</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">V_end (pu)</th>
+                  <th className="text-center text-xs text-gray-400 font-medium px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.branches.map((br) => (
+                  <tr
+                    key={br.branch_id}
+                    className={clsx(
+                      'border-t border-gray-700/50',
+                      (br.thermal_status === 'CRITICAL' || br.voltage_status === 'CRITICAL')
+                        ? 'bg-red-950/10'
+                        : (br.thermal_status === 'WARNING' || br.voltage_status !== 'NORMAL')
+                        ? 'bg-amber-950/10'
+                        : ''
+                    )}
+                  >
+                    <td className="px-4 py-3 font-mono text-xs text-gray-300 font-medium">
+                      {br.branch_id}
+                      <span className="ml-2 text-gray-600">Phase {br.phase}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-400 text-xs">{br.households} HH</td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      <span className={clsx(
+                        br.thermal_status === 'CRITICAL' ? 'text-red-400' :
+                        br.thermal_status === 'WARNING' ? 'text-amber-400' : 'text-gray-200'
+                      )}>
+                        {br.total_load_kw}
+                      </span>
+                      {br.ev_load_kw > 0 && (
+                        <span className="text-blue-400 text-[10px] ml-1">(+{br.ev_load_kw} EV)</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      <span className={clsx(
+                        br.loading_pct > 100 ? 'text-red-400 font-bold' :
+                        br.loading_pct > 75 ? 'text-amber-400' : 'text-gray-300'
+                      )}>
+                        {br.loading_pct.toFixed(0)}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      <span className={clsx(
+                        br.voltage_status === 'NORMAL' ? 'text-gray-300' : 'text-red-400'
+                      )}>
+                        {br.v_end_pu.toFixed(3)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {branchStatusBadge(br.thermal_status, br.voltage_status)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+
+          {/* EV charger sub-table (only when EV surge active) */}
+          {result.ev_surge && (
+            <div className="card border-blue-900/40 bg-blue-950/10">
+              <h3 className="text-xs font-semibold text-blue-300 mb-3">EV Chargers active on Branch B</h3>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr>
+                    <th className="text-left text-gray-400 font-medium pb-2">ID</th>
+                    <th className="text-left text-gray-400 font-medium pb-2">Location</th>
+                    <th className="text-right text-gray-400 font-medium pb-2">kW</th>
+                    <th className="text-left text-gray-400 font-medium pb-2">Phase</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {EV_CHARGERS_DEMO.filter(ev => ev.branch_id === 'BR-B').map((ev) => (
+                    <tr key={ev.id} className="border-t border-gray-700/40">
+                      <td className="py-1.5 font-mono text-gray-300">{ev.id}</td>
+                      <td className="py-1.5 text-gray-400">{ev.label}</td>
+                      <td className="py-1.5 text-right font-mono text-blue-400 font-semibold">{ev.kw}</td>
+                      <td className="py-1.5 text-gray-500 pl-4">Phase B</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-gray-600">
+                    <td colSpan={2} className="py-1.5 text-gray-400 font-medium">Total EV load</td>
+                    <td className="py-1.5 text-right font-mono text-blue-400 font-bold">
+                      {EV_CHARGERS_DEMO.filter(ev => ev.branch_id === 'BR-B').reduce((s, ev) => s + ev.kw, 0)} kW
+                    </td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Violation action prompt */}
           {result.violations.length > 0 && (

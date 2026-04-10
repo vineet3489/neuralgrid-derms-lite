@@ -1,0 +1,390 @@
+import React, { useState, useEffect } from 'react'
+import { Plus, X, Loader2, Info } from 'lucide-react'
+import clsx from 'clsx'
+import { apiClient } from '../api/client'
+
+interface Program {
+  id: string
+  name: string
+  constraint_type?: string
+  type?: string
+  dt_id?: string
+  min_flex_kw?: number
+  max_flex_kw?: number
+  target_mw?: number
+  price_per_mwh?: number
+  lead_time_min?: number
+  valid_from?: string
+  valid_to?: string
+  start_date?: string
+  end_date?: string
+  status: string
+}
+
+const DEMO_PROGRAMS: Program[] = [
+  {
+    id: 'prog-demo-001',
+    name: 'EDF Réseau Peak Flex',
+    constraint_type: 'thermal',
+    dt_id: 'DT-AUZ-001',
+    min_flex_kw: 50,
+    max_flex_kw: 245,
+    price_per_mwh: 85,
+    lead_time_min: 15,
+    valid_from: '2026-01-01',
+    valid_to: '2026-12-31',
+    status: 'active',
+  },
+]
+
+function statusBadge(status: string) {
+  const cls =
+    status === 'active'
+      ? 'bg-green-900/40 text-green-400 border-green-800/40'
+      : status === 'suspended'
+      ? 'bg-amber-900/40 text-amber-400 border-amber-800/40'
+      : 'bg-gray-700/60 text-gray-400 border-gray-600/40'
+  return (
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border', cls)}>
+      {status}
+    </span>
+  )
+}
+
+function constraintBadge(ct?: string) {
+  if (!ct) return <span className="text-gray-600 text-xs">—</span>
+  const cls =
+    ct === 'thermal'
+      ? 'bg-orange-900/40 text-orange-400 border-orange-800/40'
+      : ct === 'voltage'
+      ? 'bg-blue-900/40 text-blue-400 border-blue-800/40'
+      : 'bg-purple-900/40 text-purple-400 border-purple-800/40'
+  return (
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border', cls)}>
+      {ct}
+    </span>
+  )
+}
+
+interface FormState {
+  name: string
+  constraint_type: string
+  dt_id: string
+  min_flex_kw: string
+  max_flex_kw: string
+  price_per_mwh: string
+  currency: string
+  lead_time_min: string
+  valid_from: string
+  valid_to: string
+}
+
+const EMPTY_FORM: FormState = {
+  name: '',
+  constraint_type: 'thermal',
+  dt_id: 'DT-AUZ-001',
+  min_flex_kw: '',
+  max_flex_kw: '',
+  price_per_mwh: '',
+  currency: 'EUR',
+  lead_time_min: '15',
+  valid_from: '',
+  valid_to: '',
+}
+
+export default function ProgramsAdminPage() {
+  const [programs, setPrograms] = useState<Program[]>([])
+  const [loading, setLoading] = useState(true)
+  const [usingDemo, setUsingDemo] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    apiClient.get('/programs')
+      .then((r) => {
+        const data: Program[] = Array.isArray(r.data) ? r.data : (r.data?.items ?? [])
+        setPrograms(data)
+        setUsingDemo(false)
+      })
+      .catch(() => {
+        setPrograms(DEMO_PROGRAMS)
+        setUsingDemo(true)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const payload = {
+        name: form.name,
+        constraint_type: form.constraint_type,
+        dt_id: form.dt_id,
+        min_flex_kw: parseFloat(form.min_flex_kw) || 0,
+        max_flex_kw: parseFloat(form.max_flex_kw) || 0,
+        price_per_mwh: parseFloat(form.price_per_mwh) || 0,
+        currency: form.currency,
+        lead_time_min: parseInt(form.lead_time_min) || 15,
+        valid_from: form.valid_from,
+        valid_to: form.valid_to,
+        status: 'active',
+      }
+      const r = await apiClient.post('/programs', payload)
+      setPrograms((prev) => [...prev, r.data])
+    } catch {
+      // If API fails, add locally as demo entry
+      setPrograms((prev) => [
+        ...prev,
+        {
+          id: `prog-local-${Date.now()}`,
+          name: form.name,
+          constraint_type: form.constraint_type,
+          dt_id: form.dt_id,
+          min_flex_kw: parseFloat(form.min_flex_kw) || 0,
+          max_flex_kw: parseFloat(form.max_flex_kw) || 0,
+          price_per_mwh: parseFloat(form.price_per_mwh) || 0,
+          lead_time_min: parseInt(form.lead_time_min) || 15,
+          valid_from: form.valid_from,
+          valid_to: form.valid_to,
+          status: 'active',
+        },
+      ])
+    } finally {
+      setSaving(false)
+      setShowModal(false)
+      setForm(EMPTY_FORM)
+    }
+  }
+
+  return (
+    <div className="space-y-4 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-white">Flex Programs</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Manage flexibility programs and operating envelopes</p>
+        </div>
+        <button
+          onClick={() => setShowModal(true)}
+          className="btn-primary flex items-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          New Program
+        </button>
+      </div>
+
+      {/* Demo info banner */}
+      {usingDemo && programs.length > 0 && (
+        <div className="flex items-center gap-2.5 bg-indigo-900/20 border border-indigo-700/30 rounded-lg px-4 py-2.5 text-xs text-indigo-300">
+          <Info className="w-3.5 h-3.5 flex-shrink-0" />
+          Demo: 1 program pre-loaded — EDF Réseau Peak Flex
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="card p-0 overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-gray-500 gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading programs…</span>
+          </div>
+        ) : programs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-gray-500">
+            <p className="text-sm">No programs yet</p>
+            <button onClick={() => setShowModal(true)} className="text-xs text-indigo-400 mt-2 hover:text-indigo-300">
+              Create your first program
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-800/80 border-b border-gray-700">
+                <tr>
+                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Program ID</th>
+                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Name</th>
+                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Constraint Type</th>
+                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">DT</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Max Flex (kW)</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Price</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Lead Time</th>
+                  <th className="text-center text-xs text-gray-400 font-medium px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {programs.map((p) => (
+                  <tr key={p.id} className="border-t border-gray-700/50 hover:bg-gray-800/30 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{p.id.slice(0, 16)}…</td>
+                    <td className="px-4 py-3 text-gray-200 font-medium">{p.name}</td>
+                    <td className="px-4 py-3">{constraintBadge(p.constraint_type)}</td>
+                    <td className="px-4 py-3 text-gray-400 text-xs font-mono">{p.dt_id || '—'}</td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-300">
+                      {p.max_flex_kw != null ? p.max_flex_kw : (p.target_mw != null ? (p.target_mw * 1000).toFixed(0) : '—')}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-300">
+                      {p.price_per_mwh != null ? `€${p.price_per_mwh}/MWh` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-400 text-xs">
+                      {p.lead_time_min != null ? `${p.lead_time_min} min` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-center">{statusBadge(p.status)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg mx-4 shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
+              <h2 className="text-sm font-semibold text-white">New Flex Program</h2>
+              <button onClick={() => { setShowModal(false); setForm(EMPTY_FORM) }} className="text-gray-500 hover:text-gray-300">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Program Name</label>
+                <input
+                  required
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. EDF Réseau Peak Flex"
+                  className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Constraint Type</label>
+                  <select
+                    value={form.constraint_type}
+                    onChange={(e) => setForm((f) => ({ ...f, constraint_type: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="thermal">Thermal</option>
+                    <option value="voltage">Voltage</option>
+                    <option value="both">Both</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Linked DT</label>
+                  <select
+                    value={form.dt_id}
+                    onChange={(e) => setForm((f) => ({ ...f, dt_id: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="DT-AUZ-001">DT-AUZ-001 — Auzances LV Substation</option>
+                    <option value="DT-AUZ-005">DT-AUZ-005 — Bois-Rond T2</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Min Flex Volume (kW)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.min_flex_kw}
+                    onChange={(e) => setForm((f) => ({ ...f, min_flex_kw: e.target.value }))}
+                    placeholder="50"
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Max Flex Volume (kW)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.max_flex_kw}
+                    onChange={(e) => setForm((f) => ({ ...f, max_flex_kw: e.target.value }))}
+                    placeholder="245"
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Price per MWh</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={form.price_per_mwh}
+                    onChange={(e) => setForm((f) => ({ ...f, price_per_mwh: e.target.value }))}
+                    placeholder="85"
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Currency</label>
+                  <select
+                    value={form.currency}
+                    onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Lead Time (min)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={form.lead_time_min}
+                    onChange={(e) => setForm((f) => ({ ...f, lead_time_min: e.target.value }))}
+                    placeholder="15"
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Valid From</label>
+                  <input
+                    type="date"
+                    value={form.valid_from}
+                    onChange={(e) => setForm((f) => ({ ...f, valid_from: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Valid To</label>
+                  <input
+                    type="date"
+                    value={form.valid_to}
+                    onChange={(e) => setForm((f) => ({ ...f, valid_to: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowModal(false); setForm(EMPTY_FORM) }}
+                  className="flex-1 btn-secondary text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || !form.name}
+                  className="flex-1 btn-primary flex items-center justify-center gap-2 text-sm"
+                >
+                  {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {saving ? 'Saving…' : 'Create Program'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
