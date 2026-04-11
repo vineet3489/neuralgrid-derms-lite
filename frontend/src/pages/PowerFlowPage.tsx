@@ -29,7 +29,9 @@ function slotToTime(slot: number): string {
 
 const currentSlot = () => {
   const now = new Date()
-  return Math.min(47, now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0))
+  const slot = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0)
+  // Default to 18:30 (slot 37, EV surge window) unless it's already evening
+  return slot >= 36 ? Math.min(47, slot) : 37
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
