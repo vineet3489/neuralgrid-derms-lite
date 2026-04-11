@@ -3,8 +3,8 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useGridStore } from '../stores/gridStore'
 import {
-  Map, Activity, Radio, TrendingUp, LogOut, Zap, Bell, MessageSquare, BarChart2,
-  Layers, Users, Cpu, Shield,
+  Map, Activity, Radio, TrendingUp, LogOut, Zap, Bell, MessageSquare,
+  Layers, Users, Cpu, Shield, Database,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -15,7 +15,6 @@ const OPERATOR_NAV = [
   { path: '/oe',         label: 'OE Dispatch',  icon: Radio },
   { path: '/messages',   label: 'IEC Messages', icon: MessageSquare },
   { path: '/lookahead',  label: 'Look-Ahead',   icon: TrendingUp },
-  { path: '/settlement', label: 'Settlement',   icon: BarChart2 },
 ]
 
 // ADMIN nav items (only for admin/superuser)
@@ -23,6 +22,7 @@ const ADMIN_NAV = [
   { path: '/admin/programs',       label: 'Programs',       icon: Layers },
   { path: '/admin/counterparties', label: 'Counterparties', icon: Users },
   { path: '/admin/assets',         label: 'Assets',         icon: Cpu },
+  { path: '/admin/schema',         label: 'DB Schema',      icon: Database },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {

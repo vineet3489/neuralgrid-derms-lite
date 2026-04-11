@@ -2288,4 +2288,103 @@ Aligned with DERIM v3/v4 terminology and D4G operator screenshots:
 
 ---
 
+---
+
+## 37. Database Schema *(v1.5)*
+
+### 37.1 Overview
+
+All platform data is persisted in **PostgreSQL** via **SQLAlchemy ORM** (async, `asyncpg` driver). Every major table carries a `deployment_id` column so a single database instance serves multiple DNO deployments.
+
+**Summary:** 20 tables across 8 domains · UUID primary keys (VARCHAR 36) · all timestamps are `TIMESTAMPTZ`
+
+### 37.2 Tables by Domain
+
+#### Auth & Access
+
+| Table | Description |
+|---|---|
+| `users` | Platform user accounts. `is_superuser` bypasses all role checks. |
+| `user_deployment_roles` | Junction: user ↔ deployment with a role (VIEWER / GRID_OPS / CONTRACT_MGR / PROG_MGR / DEPLOY_ADMIN). |
+| `deployments` | One row per DNO deployment. Carries country, currency, timezone, regulatory framework, voltage/frequency nominale, settlement cycle. |
+
+#### Grid Topology
+
+| Table | Description |
+|---|---|
+| `cmzs` | Constraint Management Zones. Highest-level grid object; programs and OE are issued at CMZ level. |
+| `grid_nodes` | Network nodes: HV substations, MV feeders, distribution transformers. DT nodes parent LV feeders. |
+| `grid_alerts` | Active/historical constraint alerts (THERMAL_OVERLOAD, VOLTAGE_HIGH, VOLTAGE_LOW). |
+
+#### LV Network
+
+| Table | Description |
+|---|---|
+| `lv_feeders` | One LV feeder per DT, built from OSM (Overpass) or synthetic. Stores GeoJSON route. |
+| `lv_buses` | Bus nodes on the LV feeder. Stores power flow results (V_pu, V_V, P_kW). |
+| `dynamic_oe_slots` | 48 × 30-min OE slots per CMZ computed by LinDistFlow. Cached daily. |
+
+#### Assets & Telemetry
+
+| Table | Description |
+|---|---|
+| `der_assets` | DER assets (solar, BESS, EV charger, heat pump, flex load). FK to counterparty. Carries lat/lng, phase, DOE limits. |
+| `asset_telemetry` | Time-series telemetry (P_kW, Q_kvar, V_pu, SoC%). Used for baseline and settlement. |
+| `doe_history` | Historical DOE limits issued to individual assets. |
+
+#### Flexibility Programs
+
+| Table | Description |
+|---|---|
+| `counterparties` | Aggregators (e.g. D4G). Stores IEC EIC mRID, D4G API base URL, encrypted X-API-Key, resource group ID. |
+| `prequalification_checks` | Pre-qual audit trail for counterparties (asset verification, communication tests). |
+| `programs` | Flex programs at DT/CMZ level. DT-scoped — binding branch constraint discovered at dispatch time. |
+| `contracts` | Bilateral contracts between DNO and counterparty. Defines baseline method and measurement source. |
+| `contract_amendments` | Versioned amendments (price/capacity changes). |
+
+#### Dispatch & OE Messages
+
+| Table | Description |
+|---|---|
+| `flex_events` | One row per dispatch event. Tracks status (PENDING → ACTIVE → COMPLETED), requested/delivered kW, binding branch. |
+| `oe_messages` | Full IEC 62746-4 message log: every A38/A26/A32/A16 with direction (SENT/RECEIVED) and JSON payload. |
+
+#### Settlement
+
+| Table | Description |
+|---|---|
+| `settlement_statements` | Settlement per completed flex event. committed_kwh vs delivered_kwh → performance % → net payment (incl. penalty). |
+
+#### Forecasting & Integrations
+
+| Table | Description |
+|---|---|
+| `forecast_records` | Day-ahead load/generation forecasts per asset or feeder. Input to LinDistFlow OE. |
+| `integrations` | External system integration configs (SCADA, AMI, DSO API, weather). |
+| `scada_endpoints` | SCADA gateway push endpoints for grid snapshots. |
+
+### 37.3 Key Relationships
+
+```
+deployments ──< user_deployment_roles >── users
+deployments ──< cmzs ──< grid_nodes (DT) ──< lv_feeders ──< lv_buses
+                                          ──< dynamic_oe_slots
+                                          ──< programs ──< contracts ──< flex_events
+                                                                        ──< oe_messages
+                                                                        ──< settlement_statements
+counterparties ──< der_assets ──< asset_telemetry
+contracts       >── counterparties
+```
+
+### 37.4 DB Schema Browser (Admin UI)
+
+Route: `/admin/schema` (admin role only)
+
+- Domain-grouped table list with collapse/expand per table
+- Each table: column name · type · nullable · FK annotation
+- FK relationships summary at top
+- Stats bar: total tables, total columns, FK count
+
+---
+
 *Document updated for Neural Grid v1.5 — April 2026. For technical questions contact the L&T Smart Grid Division.*
