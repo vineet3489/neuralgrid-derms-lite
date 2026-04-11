@@ -1,13 +1,44 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts'
-import { RefreshCw, AlertTriangle, ChevronRight } from 'lucide-react'
+import {
+  DEMO_DT, LV_BRANCHES_DEMO, EV_CHARGERS_DEMO,
+} from '../data/auzanceNetwork'
+import { AlertTriangle, CheckCircle, ChevronRight, Loader2, Zap, Car } from 'lucide-react'
 import clsx from 'clsx'
 
-const DT_LIMIT = 225
+// ─── LinDistFlow constants ────────────────────────────────────────────────────
+
+const DIURNAL = [
+  0.55, 0.50, 0.48, 0.45, 0.45, 0.48,
+  0.55, 0.70, 0.95, 1.05, 1.00, 0.95,
+  0.90, 0.88, 0.85, 0.85, 0.85, 0.88,
+  0.90, 0.95, 0.95, 0.92, 0.88, 0.85,
+  0.85, 0.85, 0.88, 0.90, 0.95, 1.00,
+  1.10, 1.20, 1.35, 1.45, 1.55, 1.65,
+  1.70, 1.70, 1.65, 1.60, 1.55, 1.50,
+  1.40, 1.20, 1.00, 0.85, 0.72, 0.62,
+]
+const BASE_LOADS: Record<string, number> = { 'BR-A': 46, 'BR-B': 58, 'BR-C': 27 }
+const EV_SURGE_KW = 350
+const DT_LIMIT = DEMO_DT.thermal_limit_kw
+
+function slotToTime(slot: number): string {
+  const h = Math.floor(slot / 2)
+  const m = slot % 2 === 0 ? '00' : '30'
+  return `${String(h).padStart(2, '0')}:${m}`
+}
+
+const defaultSlot = () => {
+  const now = new Date()
+  const slot = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0)
+  return slot >= 36 ? Math.min(47, slot) : 37
+}
+
+// ─── 48-slot aggregate forecast ───────────────────────────────────────────────
 
 interface ForecastSlot {
   slot: number
@@ -15,35 +46,25 @@ interface ForecastSlot {
   totalLoad: number
   dtPct: number
   evSurge: boolean
-  constraint: string | null
+  violation: boolean
 }
 
-function generateForecastData(): ForecastSlot[] {
-  const slots: ForecastSlot[] = []
-  for (let i = 0; i < 48; i++) {
-    const h = i * 0.5
-    const timeH = Math.floor(h)
-    const timeM = h % 1 === 0 ? '00' : '30'
-    const label = `${String(timeH).padStart(2, '0')}:${timeM}`
-
-    // Base load: two peaks, morning + evening
-    const morning = 130 * Math.exp(-Math.pow(i - 16, 2) / (2 * 5 * 5))
-    const evening = 160 * Math.exp(-Math.pow(i - 37, 2) / (2 * 4 * 4))
-    const baseline = 60 + morning + evening + (Math.random() - 0.5) * 8
-
-    // EV surge window: slots 36-44 (18:00-22:00)
-    const isEvSurge = i >= 36 && i <= 44
-    const evLoad = isEvSurge
-      ? 350 * Math.exp(-Math.pow(i - 40, 2) / (2 * 3 * 3)) * (0.9 + Math.random() * 0.2)
-      : 0
-
-    const totalLoad = parseFloat((baseline + evLoad).toFixed(1))
+function buildForecast(): ForecastSlot[] {
+  const baseSum = BASE_LOADS['BR-A'] + BASE_LOADS['BR-B'] + BASE_LOADS['BR-C']
+  return DIURNAL.map((mult, i) => {
+    const evSurge = i >= 36 && i < 44
+    const evLoad = evSurge ? EV_SURGE_KW : 0
+    const totalLoad = parseFloat((mult * baseSum + evLoad).toFixed(1))
     const dtPct = parseFloat(((totalLoad / DT_LIMIT) * 100).toFixed(1))
-    const constraint = totalLoad > DT_LIMIT ? 'Branch B thermal' : null
-
-    slots.push({ slot: i, time: label, totalLoad, dtPct, evSurge: isEvSurge, constraint })
-  }
-  return slots
+    return {
+      slot: i,
+      time: slotToTime(i),
+      totalLoad,
+      dtPct,
+      evSurge,
+      violation: totalLoad > DT_LIMIT,
+    }
+  })
 }
 
 const X_TICKS = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 47]
@@ -53,7 +74,7 @@ const TICK_LABELS: Record<number, string> = {
   40: '20:00', 44: '22:00', 47: '23:30',
 }
 
-function ForecastTooltip({ active, payload, label }: any) {
+function ForecastTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload as ForecastSlot
   return (
@@ -65,39 +86,187 @@ function ForecastTooltip({ active, payload, label }: any) {
       </div>
       <div className="flex justify-between gap-4">
         <span className="text-gray-400">DT %</span>
-        <span className={clsx('font-mono', (d?.dtPct ?? 0) > 100 ? 'text-red-400' : (d?.dtPct ?? 0) > 75 ? 'text-amber-400' : 'text-gray-300')}>
+        <span className={clsx('font-mono', d?.dtPct > 100 ? 'text-red-400' : d?.dtPct > 75 ? 'text-amber-400' : 'text-gray-300')}>
           {d?.dtPct}%
         </span>
       </div>
       {d?.evSurge && <div className="text-blue-400 mt-1">EV surge window</div>}
-      {d?.constraint && <div className="text-red-400 mt-1">{d.constraint}</div>}
+      {d?.violation && <div className="text-red-400 mt-1 font-semibold">Thermal violation</div>}
+      <div className="text-gray-500 mt-1 text-[10px]">Click bar to snap slider →</div>
     </div>
   )
 }
 
+// ─── Power flow solver ────────────────────────────────────────────────────────
+
+interface BranchResult {
+  branch_id: string
+  phase: string
+  households: number
+  length_m: number
+  base_load_kw: number
+  ev_load_kw: number
+  total_load_kw: number
+  v_end_pu: number
+  v_end_v: number
+  i_a: number
+  ampacity_a: number
+  loading_pct: number
+  loss_kw: number
+  voltage_status: string
+  thermal_status: string
+}
+
+interface PowerFlowResult {
+  engine: string
+  converged: boolean
+  ev_surge: boolean
+  dt: {
+    id: string
+    rating_kva: number
+    thermal_limit_kw: number
+    total_load_kw: number
+    total_loss_kw: number
+    loading_pct: number
+    status: string
+  }
+  branches: BranchResult[]
+  violations: BranchResult[]
+}
+
+function solveFrontend(slot: number): PowerFlowResult {
+  const V_NOM = 400.0
+  const PF = 0.9
+  const mult = DIURNAL[slot]
+  const evSurge = slot >= 36 && slot < 44
+
+  const branches: BranchResult[] = LV_BRANCHES_DEMO.map((br) => {
+    const baseKw = BASE_LOADS[br.id] ?? br.base_load_kw
+    const residentialLoad = baseKw * mult
+    const evLoad = (br.id === 'BR-B' && evSurge) ? EV_SURGE_KW : 0
+    const totalLoad = residentialLoad + evLoad
+    const q = totalLoad * Math.tan(Math.acos(PF))
+    const delta_v_sq = 2 * (br.r_ohm * totalLoad * 1000 + br.x_ohm * q * 1000) / (V_NOM ** 2)
+    const v_end_pu = Math.sqrt(Math.max(1.0 - delta_v_sq, 0.01))
+    const s_kva = Math.sqrt(totalLoad ** 2 + q ** 2)
+    const i_a = (s_kva * 1000) / (Math.sqrt(3) * V_NOM)
+    const loading_pct = (i_a / br.ampacity_a) * 100
+    const loss_kw = br.r_ohm * i_a ** 2 / 1000
+
+    let v_status = 'NORMAL'
+    if (v_end_pu < 0.90 || v_end_pu > 1.10) v_status = 'CRITICAL'
+    else if (v_end_pu < 0.94) v_status = 'LOW'
+    else if (v_end_pu > 1.06) v_status = 'HIGH'
+
+    return {
+      branch_id: br.id,
+      phase: br.phase,
+      households: br.households,
+      length_m: br.length_m,
+      base_load_kw: parseFloat(residentialLoad.toFixed(1)),
+      ev_load_kw: parseFloat(evLoad.toFixed(1)),
+      total_load_kw: parseFloat(totalLoad.toFixed(1)),
+      v_end_pu: parseFloat(v_end_pu.toFixed(4)),
+      v_end_v: parseFloat((v_end_pu * V_NOM).toFixed(1)),
+      i_a: parseFloat(i_a.toFixed(1)),
+      ampacity_a: br.ampacity_a,
+      loading_pct: parseFloat(loading_pct.toFixed(1)),
+      loss_kw: parseFloat(loss_kw.toFixed(2)),
+      voltage_status: v_status,
+      thermal_status: loading_pct > 100 ? 'CRITICAL' : loading_pct > 75 ? 'WARNING' : 'NORMAL',
+    }
+  })
+
+  const total_load = branches.reduce((s, b) => s + b.total_load_kw, 0)
+  const total_loss = branches.reduce((s, b) => s + b.loss_kw, 0)
+  const dt_loading = (total_load / DT_LIMIT) * 100
+  const violations = branches.filter(b => b.voltage_status !== 'NORMAL' || b.thermal_status !== 'NORMAL')
+
+  return {
+    engine: 'DistFlow',
+    converged: true,
+    ev_surge: evSurge,
+    dt: {
+      id: DEMO_DT.id,
+      rating_kva: DEMO_DT.capacity_kva,
+      thermal_limit_kw: DT_LIMIT,
+      total_load_kw: parseFloat(total_load.toFixed(1)),
+      total_loss_kw: parseFloat(total_loss.toFixed(2)),
+      loading_pct: parseFloat(dt_loading.toFixed(1)),
+      status: dt_loading > 100 ? 'CRITICAL' : dt_loading > 75 ? 'WARNING' : 'NORMAL',
+    },
+    branches,
+    violations,
+  }
+}
+
+function branchStatusBadge(thermal: string, voltage: string) {
+  const isCritical = thermal === 'CRITICAL' || voltage === 'CRITICAL'
+  const isWarning = !isCritical && (thermal === 'WARNING' || voltage !== 'NORMAL')
+  const cls = isCritical
+    ? 'bg-red-900/40 text-red-400 border-red-800/40'
+    : isWarning
+    ? 'bg-amber-900/40 text-amber-400 border-amber-800/40'
+    : 'bg-green-900/30 text-green-400 border-green-800/30'
+  const label = isCritical ? 'Critical' : isWarning ? 'Warning' : 'Normal'
+  return <span className={clsx('inline-flex px-2 py-0.5 rounded text-[10px] font-semibold border', cls)}>{label}</span>
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function ForecastPage() {
   const navigate = useNavigate()
-  const [data, setData] = useState<ForecastSlot[]>(() => generateForecastData())
-  const [refreshing, setRefreshing] = useState(false)
+  const forecastData = useMemo(() => buildForecast(), [])
 
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true)
-    await new Promise((r) => setTimeout(r, 800))
-    setData(generateForecastData())
-    setRefreshing(false)
+  const [slotIndex, setSlotIndex] = useState<number>(defaultSlot)
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<PowerFlowResult | null>(null)
+  const [ranSlot, setRanSlot] = useState<number | null>(null)
+
+  const evSurge = slotIndex >= 36 && slotIndex < 44
+  const alreadyRan = result !== null && ranSlot === slotIndex
+
+  const violations = forecastData.filter(d => d.violation)
+  const peakSlot = forecastData.reduce((max, d) => d.totalLoad > max.totalLoad ? d : max, forecastData[0])
+
+  const handleBarClick = useCallback((data: any) => {
+    if (data?.activePayload?.[0]?.payload) {
+      const slot = data.activePayload[0].payload.slot as number
+      setSlotIndex(slot)
+      setResult(null)
+      setRanSlot(null)
+    }
   }, [])
 
-  const violations = data.filter(d => d.constraint !== null)
-  const peakSlot = data.reduce((max, d) => d.totalLoad > max.totalLoad ? d : max, data[0])
-  const constrainedWindow = data.filter(d => d.slot >= 36 && d.slot <= 44)
+  const runPowerFlow = useCallback(async () => {
+    setRunning(true)
+    setResult(null)
+
+    try {
+      const url = `${import.meta.env.VITE_API_URL || ''}/api/v1/lv/powsybl-power-flow?ev_surge=${evSurge}&slot=${slotIndex}`
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` } })
+      if (res.ok) {
+        const data = await res.json()
+        setResult({ ...data, engine: 'Powsybl' })
+        setRanSlot(slotIndex)
+        setRunning(false)
+        return
+      }
+    } catch { /* fall through */ }
+
+    await new Promise(r => setTimeout(r, 1200))
+    setResult(solveFrontend(slotIndex))
+    setRanSlot(slotIndex)
+    setRunning(false)
+  }, [slotIndex, evSurge])
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
-      {/* Workflow steps banner */}
-      <div className="flex items-center gap-1 text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 mb-1">
+      {/* Workflow breadcrumb */}
+      <div className="flex items-center gap-1 text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-lg px-4 py-2">
         <span className="text-indigo-400 font-medium">Step 1</span>
         <span className="mx-1.5 text-gray-700">·</span>
-        <span className="font-medium text-white">Look-Ahead</span>
+        <span className="font-medium text-white">Look-Ahead &amp; Power Flow</span>
         <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-600" />
         <span>Step 2 · OE Dispatch</span>
         <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-600" />
@@ -107,52 +276,40 @@ export default function ForecastPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Look-Ahead Forecast</h1>
+          <h1 className="text-xl font-bold text-white">Look-Ahead &amp; Power Flow</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            DT-AUZ-001 · 48 slots · PT30M · {DT_LIMIT} kW limit
+            DT-AUZ-001 · 48 × PT30M slots · {DT_LIMIT} kW limit · Click a bar to inspect that slot
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="btn-primary flex items-center gap-2 text-sm"
-        >
-          <RefreshCw className={clsx('w-4 h-4', refreshing && 'animate-spin')} />
-          Run Look-Ahead
-        </button>
+        <div className="flex items-center gap-1.5 bg-indigo-950/60 border border-indigo-800/40 rounded-lg px-3 py-1.5">
+          <Zap className="w-3.5 h-3.5 text-indigo-400" />
+          <span className="text-xs text-indigo-300 font-medium">{result ? result.engine : 'Powsybl'}</span>
+          {!result && <span className="text-xs text-gray-500">OpenLoadFlow</span>}
+        </div>
       </div>
 
       {/* Violation banner */}
       {violations.length > 0 && (
         <div className="flex items-start gap-3 bg-red-950/20 border border-red-800/40 rounded-lg px-4 py-3">
           <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-          <div>
+          <div className="flex-1">
             <p className="text-sm text-red-300 font-semibold">
-              Forecast violation at {violations[0].time} — Branch B thermal overload
+              Forecast violation — Branch B thermal overload {violations[0].time}–{violations[violations.length - 1].time}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Peak {peakSlot.totalLoad.toFixed(0)} kW · {peakSlot.dtPct.toFixed(0)}% of {DT_LIMIT} kW limit ·
-              {' '}{violations.length} slot{violations.length > 1 ? 's' : ''} in violation
+              Peak {peakSlot.totalLoad.toFixed(0)} kW · {peakSlot.dtPct.toFixed(0)}% of {DT_LIMIT} kW limit · {violations.length} slots in violation
             </p>
-            <div className="mt-2">
-              <button
-                onClick={() => navigate('/oe')}
-                className="inline-flex items-center gap-1.5 text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1.5 rounded font-medium transition-colors"
-              >
-                Generate Operating Envelope <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
           </div>
         </div>
       )}
 
-      {/* Bar chart */}
+      {/* 48-slot bar chart */}
       <div className="card">
-        <h3 className="text-sm font-semibold text-white mb-1">DT Total Load Forecast — 48 × PT30M Slots</h3>
-        <p className="text-xs text-gray-500 mb-4">Reference line at {DT_LIMIT} kW thermal limit · EV surge window 18:00–22:00 highlighted</p>
-        <div className="h-64">
+        <h3 className="text-sm font-semibold text-white mb-0.5">DT Aggregate Load — 48 × PT30M</h3>
+        <p className="text-xs text-gray-500 mb-4">Click any bar to snap the time slider to that slot</p>
+        <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <BarChart data={forecastData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} onClick={handleBarClick} style={{ cursor: 'pointer' }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis
                 dataKey="slot"
@@ -163,7 +320,7 @@ export default function ForecastPage() {
               <YAxis
                 tick={{ fill: '#9ca3af', fontSize: 10 }}
                 unit=" kW"
-                domain={[0, Math.ceil(Math.max(...data.map(d => d.totalLoad)) / 50) * 50 + 50]}
+                domain={[0, Math.ceil(Math.max(...forecastData.map(d => d.totalLoad)) / 100) * 100 + 50]}
               />
               <Tooltip content={<ForecastTooltip />} />
               <ReferenceLine
@@ -173,16 +330,24 @@ export default function ForecastPage() {
                 strokeWidth={1.5}
                 label={{ value: `${DT_LIMIT} kW limit`, position: 'insideTopRight', fontSize: 9, fill: '#ef4444' }}
               />
+              {/* Selected slot indicator */}
+              <ReferenceLine
+                x={slotIndex}
+                stroke="#818cf8"
+                strokeWidth={2}
+                strokeDasharray="4 2"
+              />
               <Bar dataKey="totalLoad" radius={[2, 2, 0, 0]}>
-                {data.map((d) => (
+                {forecastData.map((d) => (
                   <Cell
                     key={d.slot}
                     fill={
-                      d.totalLoad > DT_LIMIT ? '#ef4444'
+                      d.slot === slotIndex ? '#a5b4fc'
+                      : d.violation ? '#ef4444'
                       : d.evSurge ? '#f59e0b'
                       : '#6366f1'
                     }
-                    opacity={d.evSurge ? 0.9 : 0.75}
+                    opacity={d.slot === slotIndex ? 1 : d.evSurge ? 0.85 : 0.7}
                   />
                 ))}
               </Bar>
@@ -190,66 +355,237 @@ export default function ForecastPage() {
           </ResponsiveContainer>
         </div>
         <div className="flex items-center gap-5 mt-2 text-[10px] text-gray-500">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500/75 rounded-sm inline-block" />Normal</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-amber-500/90 rounded-sm inline-block" />EV surge window</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500/70 rounded-sm inline-block" />Normal</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-amber-500/85 rounded-sm inline-block" />EV surge</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500 rounded-sm inline-block" />Thermal violation</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-300 rounded-sm inline-block" />Selected slot</span>
         </div>
       </div>
 
-      {/* Constrained slots table */}
-      <div className="card">
-        <h3 className="text-sm font-semibold text-white mb-3">Constrained Window — 18:00–22:00</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="border-b border-gray-700">
-              <tr>
-                <th className="text-left text-gray-400 font-medium pb-2 pr-6">Time</th>
-                <th className="text-right text-gray-400 font-medium pb-2 pr-6">Total Load kW</th>
-                <th className="text-right text-gray-400 font-medium pb-2 pr-6">DT %</th>
-                <th className="text-left text-gray-400 font-medium pb-2">Constraint</th>
-              </tr>
-            </thead>
-            <tbody>
-              {constrainedWindow.map((d) => (
-                <tr
-                  key={d.slot}
-                  className={clsx(
-                    'border-t border-gray-700/50',
-                    d.constraint ? 'bg-red-950/10' : ''
-                  )}
-                >
-                  <td className="py-2 pr-6 font-mono text-gray-300">{d.time}</td>
-                  <td className="py-2 pr-6 text-right font-mono">
-                    <span className={clsx(
-                      d.totalLoad > DT_LIMIT ? 'text-red-400 font-bold' :
-                      d.evSurge ? 'text-amber-400' : 'text-gray-200'
-                    )}>
-                      {d.totalLoad.toFixed(0)}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-6 text-right font-mono">
-                    <span className={clsx(
-                      d.dtPct > 100 ? 'text-red-400 font-bold' :
-                      d.dtPct > 75 ? 'text-amber-400' : 'text-gray-300'
-                    )}>
-                      {d.dtPct.toFixed(0)}%
-                    </span>
-                  </td>
-                  <td className="py-2">
-                    {d.constraint ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-red-900/40 text-red-300 border border-red-800/40">
-                        {d.constraint}
-                      </span>
-                    ) : (
-                      <span className="text-gray-600">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Power flow controls */}
+      <div className="card flex items-center gap-6">
+        <div className="flex-shrink-0">
+          <div className="text-xs text-gray-400 mb-0.5">DT</div>
+          <div className="text-sm font-semibold text-white">{DEMO_DT.name}</div>
+          <div className="text-xs text-gray-500">{DEMO_DT.thermal_limit_kw} kW limit · 65 HH</div>
         </div>
+
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-gray-400">Time of day</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-white font-mono">{slotToTime(slotIndex)}</span>
+              {evSurge && (
+                <span className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-300 border border-blue-700/40 px-1.5 py-0.5 rounded">
+                  <Car className="w-2.5 h-2.5" /> EV surge active
+                </span>
+              )}
+            </div>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={47}
+            value={slotIndex}
+            onChange={(e) => { setSlotIndex(Number(e.target.value)); setResult(null); setRanSlot(null) }}
+            className="w-full accent-indigo-500 cursor-pointer"
+          />
+          <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+            <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:30</span>
+          </div>
+        </div>
+
+        <button
+          onClick={runPowerFlow}
+          disabled={running || alreadyRan}
+          className={clsx(
+            'flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+            alreadyRan
+              ? 'bg-green-900/40 text-green-400 border border-green-700/40 cursor-default'
+              : 'btn-primary'
+          )}
+        >
+          {running && <Loader2 className="w-4 h-4 animate-spin" />}
+          {alreadyRan && <CheckCircle className="w-4 h-4" />}
+          {running ? 'Solving…' : alreadyRan ? `✓ ${slotToTime(slotIndex)}` : `Run Power Flow · ${slotToTime(slotIndex)}`}
+        </button>
       </div>
+
+      {/* Running state */}
+      {running && (
+        <div className="card flex flex-col items-center justify-center py-10 text-gray-400">
+          <Loader2 className="w-7 h-7 animate-spin mb-3 text-indigo-400" />
+          <p className="text-sm font-medium">Running power flow…</p>
+          <p className="text-xs text-gray-500 mt-1">{slotToTime(slotIndex)} · 250 kVA · 3 branches</p>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!result && !running && (
+        <div className="card flex flex-col items-center justify-center py-10 text-gray-500">
+          <Zap className="w-7 h-7 mb-3 text-gray-600" />
+          <p className="text-sm">Click a bar or move the slider, then <strong className="text-gray-400">Run Power Flow</strong></p>
+        </div>
+      )}
+
+      {/* Power flow results */}
+      {result && (
+        <>
+          {/* DT summary */}
+          <div className={clsx(
+            'rounded-xl border px-5 py-3 flex items-center gap-6',
+            result.dt.status === 'CRITICAL'
+              ? 'bg-red-950/20 border-red-700/50'
+              : result.dt.status === 'WARNING'
+              ? 'bg-amber-950/20 border-amber-700/40'
+              : 'bg-green-950/10 border-green-800/30'
+          )}>
+            <div className="flex items-center gap-3">
+              {result.dt.status === 'CRITICAL'
+                ? <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                : <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
+              }
+              <span className="text-sm font-semibold text-white">{result.dt.id}</span>
+            </div>
+            <span className="text-sm font-mono text-gray-200">
+              {result.dt.total_load_kw} / {result.dt.thermal_limit_kw} kW
+            </span>
+            <div className={clsx(
+              'text-lg font-bold',
+              result.dt.status === 'CRITICAL' ? 'text-red-400' :
+              result.dt.status === 'WARNING' ? 'text-amber-400' : 'text-green-400'
+            )}>
+              {result.dt.loading_pct.toFixed(0)}%
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-gray-500">{result.engine} · {slotToTime(slotIndex)}</span>
+              {result.violations.length > 0
+                ? <span className="text-xs text-red-400 font-medium">{result.violations.length} violation{result.violations.length > 1 ? 's' : ''}</span>
+                : <span className="text-xs text-green-400">No violations</span>
+              }
+            </div>
+          </div>
+
+          {/* Branch table */}
+          <div className="card p-0 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-800/80 border-b border-gray-700">
+                <tr>
+                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Branch</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Households</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Load (kW)</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Loading %</th>
+                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">V_end (pu)</th>
+                  <th className="text-center text-xs text-gray-400 font-medium px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.branches.map((br) => (
+                  <tr
+                    key={br.branch_id}
+                    className={clsx(
+                      'border-t border-gray-700/50',
+                      (br.thermal_status === 'CRITICAL' || br.voltage_status === 'CRITICAL')
+                        ? 'bg-red-950/10'
+                        : (br.thermal_status === 'WARNING' || br.voltage_status !== 'NORMAL')
+                        ? 'bg-amber-950/10'
+                        : ''
+                    )}
+                  >
+                    <td className="px-4 py-3 font-mono text-xs text-gray-300 font-medium">
+                      {br.branch_id}
+                      <span className="ml-2 text-gray-600">Phase {br.phase}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-400 text-xs">{br.households} HH</td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      <span className={clsx(
+                        br.thermal_status === 'CRITICAL' ? 'text-red-400' :
+                        br.thermal_status === 'WARNING' ? 'text-amber-400' : 'text-gray-200'
+                      )}>
+                        {br.total_load_kw}
+                      </span>
+                      {br.ev_load_kw > 0 && (
+                        <span className="text-blue-400 text-[10px] ml-1">(+{br.ev_load_kw} EV)</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      <span className={clsx(
+                        br.loading_pct > 100 ? 'text-red-400 font-bold' :
+                        br.loading_pct > 75 ? 'text-amber-400' : 'text-gray-300'
+                      )}>
+                        {br.loading_pct.toFixed(0)}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      <span className={clsx(br.voltage_status === 'NORMAL' ? 'text-gray-300' : 'text-red-400')}>
+                        {br.v_end_pu.toFixed(3)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {branchStatusBadge(br.thermal_status, br.voltage_status)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* EV charger detail */}
+          {result.ev_surge && (
+            <div className="card border-blue-900/40 bg-blue-950/10">
+              <h3 className="text-xs font-semibold text-blue-300 mb-3">EV Chargers active on Branch B</h3>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr>
+                    <th className="text-left text-gray-400 font-medium pb-2">ID</th>
+                    <th className="text-left text-gray-400 font-medium pb-2">Location</th>
+                    <th className="text-right text-gray-400 font-medium pb-2">kW</th>
+                    <th className="text-left text-gray-400 font-medium pb-2">Phase</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {EV_CHARGERS_DEMO.filter(ev => ev.branch_id === 'BR-B').map((ev) => (
+                    <tr key={ev.id} className="border-t border-gray-700/40">
+                      <td className="py-1.5 font-mono text-gray-300">{ev.id}</td>
+                      <td className="py-1.5 text-gray-400">{ev.label}</td>
+                      <td className="py-1.5 text-right font-mono text-blue-400 font-semibold">{ev.kw}</td>
+                      <td className="py-1.5 text-gray-500 pl-4">Phase B</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-gray-600">
+                    <td colSpan={2} className="py-1.5 text-gray-400 font-medium">Total EV load</td>
+                    <td className="py-1.5 text-right font-mono text-blue-400 font-bold">
+                      {EV_CHARGERS_DEMO.filter(ev => ev.branch_id === 'BR-B').reduce((s, ev) => s + ev.kw, 0)} kW
+                    </td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Generate OE CTA */}
+          {result.violations.length > 0 && (
+            <div className="flex items-center justify-between bg-red-950/20 border border-red-800/40 rounded-lg px-4 py-3">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                <p className="text-sm text-red-300">
+                  <span className="font-semibold">
+                    {result.violations.map(v => `Branch ${v.phase}`).join(', ')} overloaded
+                  </span>
+                  {' '}— thermal constraint at {slotToTime(slotIndex)}. Curtail EV charging via D4G A38 dispatch.
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/oe')}
+                className="flex-shrink-0 flex items-center gap-1.5 bg-red-700 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded font-medium transition-colors ml-4"
+              >
+                Generate OE <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

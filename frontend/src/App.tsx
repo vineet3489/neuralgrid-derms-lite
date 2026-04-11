@@ -76,7 +76,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<Navigate to="/network" replace />} />
         <Route path="/network" element={<ProtectedRoute><NetworkMapPage /></ProtectedRoute>} />
-        <Route path="/powerflow" element={<ProtectedRoute><PowerFlowPage /></ProtectedRoute>} />
+        <Route path="/powerflow" element={<Navigate to="/lookahead" replace />} />
 
         {/* New canonical paths */}
         <Route path="/oe" element={<ProtectedRoute><OperatingEnvelopePage /></ProtectedRoute>} />

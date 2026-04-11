@@ -104,7 +104,6 @@ export default function OperatingEnvelopePage() {
   const [selectedDtId, setSelectedDtId] = useState(savedDtId)
 
   const today = new Date().toISOString().slice(0, 10)
-  const [oeDate, setOeDate] = useState(today)
 
   const [oeDoc, setOeDoc] = useState<ReturnType<typeof buildOEDocument> | null>(null)
   const [oePoints, setOePoints] = useState<OEPoint[]>([])
@@ -145,17 +144,17 @@ export default function OperatingEnvelopePage() {
         solver = 'LinDistFlow'
       } catch {
         setOeError('Backend unavailable — using heuristic fallback')
-        const startDT = new Date(`${oeDate}T00:00:00`)
+        const startDT = new Date(`${today}T00:00:00`)
         pts = generateOEPoints(selectedDtId, startDT, 48)
       }
     } else {
-      const startDT = new Date(`${oeDate}T00:00:00`)
+      const startDT = new Date(`${today}T00:00:00`)
       pts = generateOEPoints(selectedDtId, startDT, 48)
     }
 
     setOePoints(pts)
     setOeSolver(solver)
-    const doc = buildOEDocument(selectedDtId, oeDate, pts)
+    const doc = buildOEDocument(selectedDtId, today, pts)
     setOeDoc(doc)
     setOeLoading(false)
 
@@ -165,7 +164,7 @@ export default function OperatingEnvelopePage() {
     setSending(false)
     const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
     setSentBanner(`A38 sent to Digital4Grids · ${mrid}`)
-  }, [selectedDtId, oeDate])
+  }, [selectedDtId, today])
 
   const handleCopyOE = () => {
     if (!oeDoc) return
@@ -193,8 +192,8 @@ export default function OperatingEnvelopePage() {
 
       {/* Controls */}
       <div className="card">
-        <div className="grid grid-cols-3 gap-4 items-end">
-          <div className="col-span-1">
+        <div className="grid grid-cols-2 gap-4 items-end">
+          <div>
             <label className="block text-xs text-gray-400 mb-1.5">Distribution Transformer</label>
             <select
               value={selectedDtId}
@@ -214,15 +213,7 @@ export default function OperatingEnvelopePage() {
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1.5">Date</label>
-            <input
-              type="date"
-              value={oeDate}
-              onChange={(e) => setOeDate(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
+            <p className="text-[11px] text-gray-500 mt-1.5">Today's Operating Envelope · {today}</p>
           </div>
           <button
             onClick={handleGenerateAndSend}
