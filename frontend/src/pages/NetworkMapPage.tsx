@@ -240,7 +240,11 @@ export default function NetworkMapPage() {
             dt={selectedDT}
             ders={dtDers}
             onClose={() => setSelectedDT(null)}
-            onPowerFlow={() => { localStorage.setItem('lite_selected_dt', selectedDT.id); navigate('/power-flow') }}
+            onPowerFlow={() => {
+              localStorage.setItem('lite_selected_dt', selectedDT.id)
+              // Pass violation slot (37 = 18:30, EV surge window) and dtId so ForecastPage can pre-select
+              navigate('/lookahead', { state: { slot: selectedDT.status !== 'NORMAL' ? 37 : undefined, dtId: selectedDT.id } })
+            }}
             onOE={() => { localStorage.setItem('lite_selected_dt', selectedDT.id); navigate('/oe') }}
           />
         ) : (

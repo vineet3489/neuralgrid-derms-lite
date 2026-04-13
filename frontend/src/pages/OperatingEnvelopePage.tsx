@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { DISTRIBUTION_TRANSFORMERS } from '../data/auzanceNetwork'
-import { CheckCircle, Copy, ChevronDown, ChevronUp, Loader2, Send, Cpu } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Copy, ChevronDown, ChevronUp, Loader2, Send, Cpu } from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '../api/client'
 
@@ -63,23 +64,31 @@ function generateOEPoints(dtId: string, startTime: Date, count = 48): OEPoint[] 
   return points
 }
 
-function buildOEDocument(dtId: string, startDate: string, points: OEPoint[]) {
+function buildOEDocument(dtId: string, points: OEPoint[]) {
   const ts = new Date().toISOString()
   const mRID = `OE-${dtId}-${Date.now()}`
-  const startDT = new Date(`${startDate}T00:00:00`)
-  const endDT = new Date(`${startDate}T23:30:00`)
+  const today = new Date().toISOString().slice(0, 10)
+  const startDT = new Date(`${today}T00:00:00Z`)
+  const endDT = new Date(`${today}T23:30:00Z`)
   return {
     ReferenceEnergyCurveOperatingEnvelope_MarketDocument: {
       mRID,
-      type: 'A44',
-      'process.processType': 'Z01',
-      'sender_MarketParticipant.mRID': '17X100A100A0001A',
-      'receiver_MarketParticipant.mRID': '17XTESTD4GRID02T',
+      revisionNumber: '1',
+      type: 'A38',                                       // Operating Envelope (was wrongly A44)
+      'process.processType': 'A01',                      // Day-ahead
+      'sender_MarketParticipant.mRID': { $text: '17X100A100A0001A', codingScheme: 'A01' },
+      'sender_MarketParticipant.marketRole.type': 'A04', // DSO
+      'receiver_MarketParticipant.mRID': { $text: '17XTESTD4GRID02T', codingScheme: 'A01' },
+      'receiver_MarketParticipant.marketRole.type': 'A13', // Aggregator
       createdDateTime: ts,
+      'in_Domain.mRID': { $text: '17XAUZANCE001ZN', codingScheme: 'A01' },   // CMZ EIC
+      'out_Domain.mRID': { $text: '17XFRDSOEDFR001', codingScheme: 'A01' },  // DSO grid EIC
       Series: [
         {
           mRID: 'SERIES-001',
-          businessType: 'A96',
+          businessType: 'A96',                           // Operating envelope
+          'registeredResource.mRID': { $text: `17X${dtId.replace(/-/g, '')}`, codingScheme: 'A01' },
+          'measurement_Unit.name': 'MAW',                // IEC standard: MW (not kW)
           Period: {
             timeInterval: {
               start: startDT.toISOString(),
@@ -88,9 +97,12 @@ function buildOEDocument(dtId: string, startDate: string, points: OEPoint[]) {
             resolution: 'PT30M',
             Point: points.map((p) => ({
               position: p.position,
-              quantity_Minimum: p.quantity_Minimum,
-              quantity_Maximum: p.quantity_Maximum,
+              // IEC62325: quantities in MW. Sign: negative = max import allowed, positive = max export
+              quantity_Minimum: parseFloat((p.quantity_Minimum / 1000).toFixed(6)), // kW → MW
+              quantity_Maximum: parseFloat((p.quantity_Maximum / 1000).toFixed(6)), // kW → MW
               qualityCode: p.qualityCode,
+              // Power flow direction annotation
+              ...(p.ev_surge ? { 'flowDirection.direction': 'A02' } : {}), // A02 = consumption
             })),
           },
         },
@@ -100,6 +112,10 @@ function buildOEDocument(dtId: string, startDate: string, points: OEPoint[]) {
 }
 
 export default function OperatingEnvelopePage() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const fromPowerFlow = !!(location.state as any)?.powerFlowConfirmed
+
   const savedDtId = localStorage.getItem('lite_selected_dt') || DISTRIBUTION_TRANSFORMERS[0].id
   const [selectedDtId, setSelectedDtId] = useState(savedDtId)
 
@@ -154,16 +170,37 @@ export default function OperatingEnvelopePage() {
 
     setOePoints(pts)
     setOeSolver(solver)
-    const doc = buildOEDocument(selectedDtId, today, pts)
+    const doc = buildOEDocument(selectedDtId, pts)
     setOeDoc(doc)
     setOeLoading(false)
 
-    // Simulate send to D4G
+    // Send to D4G via backend
     setSending(true)
-    await new Promise(r => setTimeout(r, 800))
-    setSending(false)
-    const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
-    setSentBanner(`A38 sent to Digital4Grids · ${mrid}`)
+    try {
+      const sendResp = await fetch(
+        `${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/send-oe`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}`,
+          },
+          body: JSON.stringify(doc),
+        }
+      )
+      const sendResult = sendResp.ok ? await sendResp.json() : null
+      const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
+      if (sendResult?.sent) {
+        setSentBanner(`A38 sent to Digital4Grids · ${mrid} · Ack: ${sendResult.ack_id || 'received'}`)
+      } else {
+        setSentBanner(`A38 prepared · ${mrid} · ${sendResult?.message || 'D4G endpoint not configured — stored locally'}`)
+      }
+    } catch {
+      const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
+      setSentBanner(`A38 prepared · ${mrid} · Could not reach send endpoint`)
+    } finally {
+      setSending(false)
+    }
   }, [selectedDtId, today])
 
   const handleCopyOE = () => {
@@ -228,6 +265,16 @@ export default function OperatingEnvelopePage() {
         </div>
         {oeError && <p className="text-xs text-amber-500 mt-2">{oeError}</p>}
       </div>
+
+      {!fromPowerFlow && oePoints.length === 0 && (
+        <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-500" />
+          For physics-based OE, run Power Flow first on the Look-Ahead page to confirm violations.
+          <button onClick={() => navigate('/lookahead')} className="ml-auto text-indigo-600 hover:underline font-medium">
+            Go to Look-Ahead →
+          </button>
+        </div>
+      )}
 
       {/* Success banner */}
       {sentBanner && (

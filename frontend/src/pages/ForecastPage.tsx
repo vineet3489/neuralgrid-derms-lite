@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell,
@@ -216,12 +216,45 @@ function branchStatusBadge(thermal: string, voltage: string) {
 
 export default function ForecastPage() {
   const navigate = useNavigate()
-  const forecastData = useMemo(() => buildForecast(), [])
+  const location = useLocation()
+  const navState = location.state as { slot?: number; dtId?: string } | null
 
-  const [slotIndex, setSlotIndex] = useState<number>(defaultSlot)
+  const [slotIndex, setSlotIndex] = useState<number>(() => navState?.slot ?? defaultSlot())
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<PowerFlowResult | null>(null)
   const [ranSlot, setRanSlot] = useState<number | null>(null)
+  const [forecastData, setForecastData] = useState<ForecastSlot[]>(() => buildForecast())
+  const [forecastLoading, setForecastLoading] = useState(false)
+
+  const controlsRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setForecastLoading(true)
+    fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/lindistflow-oe?dt_id=DT-AUZ-001`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.slots) return
+        const mapped: ForecastSlot[] = data.slots.map((s: any) => ({
+          slot: s.position - 1,
+          time: s.time,
+          totalLoad: s.total_load_kw ?? 0,
+          dtPct: s.dt_loading_pct ?? 0,
+          evSurge: s.ev_surge ?? false,
+          violation: (s.total_load_kw ?? 0) > DT_LIMIT,
+        }))
+        setForecastData(mapped)
+      })
+      .catch(() => {})
+      .finally(() => setForecastLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (navState?.slot !== undefined && controlsRef.current) {
+      setTimeout(() => controlsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)
+    }
+  }, [])
 
   const evSurge = slotIndex >= 36 && slotIndex < 44
   const alreadyRan = result !== null && ranSlot === slotIndex
@@ -243,7 +276,7 @@ export default function ForecastPage() {
     setResult(null)
 
     try {
-      const url = `${import.meta.env.VITE_API_URL || ''}/api/v1/lv/powsybl-power-flow?ev_surge=${evSurge}&slot=${slotIndex}`
+      const url = `${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/powsybl-power-flow?ev_surge=${evSurge}`
       const res = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` } })
       if (res.ok) {
         const data = await res.json()
@@ -305,7 +338,10 @@ export default function ForecastPage() {
 
       {/* 48-slot bar chart */}
       <div className="card">
-        <h3 className="text-sm font-semibold text-gray-900 mb-0.5">DT Aggregate Load — 48 × PT30M</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-0.5">
+          DT Aggregate Load — 48 × PT30M
+          {forecastLoading && <span className="ml-2 text-xs text-gray-400 font-normal">Loading…</span>}
+        </h3>
         <p className="text-xs text-gray-500 mb-4">Click any bar to snap the time slider to that slot</p>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
@@ -363,7 +399,7 @@ export default function ForecastPage() {
       </div>
 
       {/* Power flow controls */}
-      <div className="card flex items-center gap-6">
+      <div ref={controlsRef} className="card flex items-center gap-6">
         <div className="flex-shrink-0">
           <div className="text-xs text-gray-500 mb-0.5">DT</div>
           <div className="text-sm font-semibold text-gray-900">{DEMO_DT.name}</div>

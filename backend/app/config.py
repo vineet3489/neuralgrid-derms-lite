@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     kafka_security_protocol: str = os.environ.get("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT")
     kafka_group_id: str = os.environ.get("KAFKA_GROUP_ID", "neuralgrid-derms")
 
+    # D4G (Digital4Grids) — OE delivery endpoint
+    # Set D4G_API_URL to the real endpoint when credentials are obtained
+    d4g_api_url: str = os.environ.get("D4G_API_URL", "")
+    d4g_api_key: str = os.environ.get("D4G_API_KEY", "")
+    d4g_sender_mrid: str = os.environ.get("D4G_SENDER_MRID", "17X100A100A0001A")
+    d4g_receiver_mrid: str = os.environ.get("D4G_RECEIVER_MRID", "17XTESTD4GRID02T")
+
     # Static files (React build output)
     static_dir: str = os.environ.get("STATIC_DIR", "../frontend/dist")
 

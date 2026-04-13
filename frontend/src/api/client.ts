@@ -198,6 +198,10 @@ export const api = {
   lindistflowOE: (dtId: string = 'DT-AUZ-001') =>
     apiClient.get(`/lv-network/lindistflow-oe?dt_id=${dtId}`),
 
+  // Send OE to D4G
+  sendOEtoD4G: (doc: unknown) =>
+    apiClient.post('/lv-network/send-oe', doc),
+
   // CIM aggregator — IEC 62325 + IEC 62746-4
   cimProtocols: () => apiClient.get('/aggregator/cim/protocols'),
   cimCapability: (data: unknown) => apiClient.post('/aggregator/cim/capability', data),

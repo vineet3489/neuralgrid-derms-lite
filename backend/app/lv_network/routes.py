@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from sqlalchemy import select
 
 from app.core.deps import CurrentUserDep, DBDep, DeploymentDep
@@ -416,6 +416,7 @@ async def lindistflow_oe_endpoint(
 @router.get("/powsybl-power-flow")
 async def powsybl_power_flow_endpoint(
     ev_surge: bool = False,
+    slot: int = Query(None, ge=0, le=47, description="30-min slot index 0-47; overrides ev_surge if provided"),
 ):
     """
     Run Powsybl AC load flow on the Auzances 250 kVA 3-branch LV reference network.
@@ -424,7 +425,90 @@ async def powsybl_power_flow_endpoint(
 
     Query params:
       ev_surge: bool — if true, adds 3 EV fast chargers to Branch B (350 kW)
+      slot: int — 0-47 slot index; overrides ev_surge (slots 36-43 = 18:00-22:00 EV surge)
     """
+    # Derive ev_surge from slot if provided (slots 36-43 = 18:00-22:00 EV surge)
+    if slot is not None:
+        ev_surge = 36 <= slot < 44
     from app.lv_network.powsybl_service import run_auzance_power_flow
     result = run_auzance_power_flow(ev_surge=ev_surge)
     return result
+
+
+@router.post("/send-oe")
+async def send_oe_to_d4g(
+    doc: dict = Body(..., description="A38 Operating Envelope MarketDocument JSON"),
+    current_user: CurrentUserDep = None,
+) -> dict:
+    """
+    Forward an A38 Operating Envelope document to Digital4Grids.
+
+    If D4G_API_URL is configured (env var), POSTs the document to D4G and returns
+    their acknowledgement. If not configured, returns a simulated success response
+    so development/demo environments work without credentials.
+
+    Body: the full A38 MarketDocument JSON as built by the frontend.
+    """
+    import httpx
+    from datetime import datetime, timezone
+
+    from app.config import settings
+
+    mrid = "UNKNOWN"
+    try:
+        mrid = doc.get("ReferenceEnergyCurveOperatingEnvelope_MarketDocument", {}).get("mRID", "UNKNOWN")
+    except Exception:
+        pass
+
+    # If D4G endpoint is configured, actually send it
+    if settings.d4g_api_url:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    settings.d4g_api_url,
+                    json=doc,
+                    headers={
+                        "Authorization": f"Bearer {settings.d4g_api_key}",
+                        "Content-Type": "application/json",
+                        "X-Sender-MRID": settings.d4g_sender_mrid,
+                    },
+                )
+                if resp.status_code in (200, 201, 202):
+                    ack_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+                    return {
+                        "sent": True,
+                        "mrid": mrid,
+                        "ack_id": ack_data.get("mRID") or ack_data.get("id") or resp.headers.get("X-Ack-ID", ""),
+                        "d4g_status": resp.status_code,
+                        "sent_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                else:
+                    return {
+                        "sent": False,
+                        "mrid": mrid,
+                        "message": f"D4G returned HTTP {resp.status_code}: {resp.text[:200]}",
+                        "sent_at": datetime.now(timezone.utc).isoformat(),
+                    }
+        except Exception as exc:
+            return {
+                "sent": False,
+                "mrid": mrid,
+                "message": f"D4G connection error: {str(exc)[:200]}",
+                "sent_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+    # D4G not configured — simulated response for dev/demo
+    return {
+        "sent": False,
+        "simulated": True,
+        "mrid": mrid,
+        "message": "D4G_API_URL not configured — document accepted locally. Set D4G_API_URL env var to enable live delivery.",
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+        "document_type": "A38",
+        "slot_count": len(
+            doc.get("ReferenceEnergyCurveOperatingEnvelope_MarketDocument", {})
+            .get("Series", [{}])[0]
+            .get("Period", {})
+            .get("Point", [])
+        ),
+    }
