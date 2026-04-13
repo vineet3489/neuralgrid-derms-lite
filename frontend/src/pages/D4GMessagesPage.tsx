@@ -39,17 +39,17 @@ function JsonHighlight({ json }: { json: unknown }) {
     /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
     (match) => {
       if (/^"/.test(match)) {
-        if (/:$/.test(match)) return `<span class="text-blue-400">${match}</span>`
-        return `<span class="text-green-400">${match}</span>`
+        if (/:$/.test(match)) return `<span class="text-blue-500">${match}</span>`
+        return `<span class="text-green-600">${match}</span>`
       }
-      if (/true|false/.test(match)) return `<span class="text-purple-400">${match}</span>`
-      if (/null/.test(match)) return `<span class="text-red-400">${match}</span>`
-      return `<span class="text-amber-400">${match}</span>`
+      if (/true|false/.test(match)) return `<span class="text-purple-500">${match}</span>`
+      if (/null/.test(match)) return `<span class="text-red-500">${match}</span>`
+      return `<span class="text-amber-500">${match}</span>`
     },
   )
   return (
     <pre
-      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-gray-300"
+      className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-all text-gray-700"
       dangerouslySetInnerHTML={{ __html: highlighted }}
     />
   )
@@ -267,27 +267,27 @@ export default function D4GMessagesPage() {
   function stepStatusBadge(stepNum: number) {
     if (stepNum === 1) {
       return steps.a38 === 'sent'
-        ? <span className="text-xs px-2 py-0.5 rounded bg-green-900/40 text-green-400 border border-green-800/40">Sent</span>
-        : <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400 border border-gray-600">Pending</span>
+        ? <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">Sent</span>
+        : <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200">Pending</span>
     }
     if (stepNum === 2) {
       return steps.a26 === 'received'
-        ? <span className="text-xs px-2 py-0.5 rounded bg-teal-900/40 text-teal-400 border border-teal-800/40">Received</span>
-        : <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400 border border-gray-600">Awaiting</span>
+        ? <span className="text-xs px-2 py-0.5 rounded bg-teal-100 text-teal-700 border border-teal-200">Received</span>
+        : <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200">Awaiting</span>
     }
     if (stepNum === 3) {
       if (steps.a32 === 'sending') return (
-        <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-indigo-900/40 text-indigo-300 border border-indigo-800/40">
+        <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-600 border border-indigo-200">
           <Loader2 className="w-3 h-3 animate-spin" /> Sending…
         </span>
       )
       if (steps.a32 === 'sent') return (
-        <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-green-900/40 text-green-400 border border-green-800/40">
+        <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">
           <CheckCircle2 className="w-3 h-3" /> Sent
         </span>
       )
       if (steps.a32 === 'error') return (
-        <span className="text-xs px-2 py-0.5 rounded bg-red-900/40 text-red-400 border border-red-800/40">Error</span>
+        <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-600 border border-red-200">Error</span>
       )
       return (
         <button
@@ -299,10 +299,10 @@ export default function D4GMessagesPage() {
       )
     }
     if (stepNum === 4) {
-      return <span className="text-xs px-2 py-0.5 rounded bg-gray-700/60 text-gray-400 border border-gray-600">WIP at D4G</span>
+      return <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200">WIP at D4G</span>
     }
     if (stepNum === 5) {
-      return <span className="text-xs px-2 py-0.5 rounded bg-gray-700/60 text-gray-400 border border-gray-600">Awaiting</span>
+      return <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200">Awaiting</span>
     }
     return null
   }
@@ -321,8 +321,8 @@ export default function D4GMessagesPage() {
     <div className="space-y-5 max-w-4xl mx-auto">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-white">IEC Messages</h1>
-        <p className="text-sm text-gray-400 mt-0.5">
+        <h1 className="text-xl font-bold text-gray-900">IEC Messages</h1>
+        <p className="text-sm text-gray-500 mt-0.5">
           EVT-AUZ-001 · DT-AUZ-001 Branch B · IEC 62746-4 · A38→A26→A32→ODS→A16
         </p>
       </div>
@@ -334,33 +334,33 @@ export default function D4GMessagesPage() {
           const isExpanded = expandedStep === step.num
           const payload = stepPayloads[step.num]
           return (
-            <div key={step.num} className={clsx('border-b border-gray-700/50 last:border-0')}>
+            <div key={step.num} className={clsx('border-b border-gray-200 last:border-0')}>
               <div className="flex items-center gap-4 px-5 py-3.5">
                 {/* Step number + connector */}
                 <div className="flex flex-col items-center flex-shrink-0">
                   <div className={clsx(
                     'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border',
                     step.num === 3
-                      ? steps.a32 === 'sent' ? 'bg-green-900/60 text-green-300 border-green-700'
-                        : steps.a32 === 'error' ? 'bg-red-900/60 text-red-300 border-red-700'
-                        : steps.a32 === 'sending' ? 'bg-indigo-900/60 text-indigo-300 border-indigo-700'
-                        : 'bg-indigo-900/60 text-indigo-300 border-indigo-700'
-                      : step.num <= 2 ? 'bg-green-900/50 text-green-400 border-green-700/50'
-                      : 'bg-gray-800 text-gray-500 border-gray-700'
+                      ? steps.a32 === 'sent' ? 'bg-green-100 text-green-700 border-green-200'
+                        : steps.a32 === 'error' ? 'bg-red-100 text-red-600 border-red-200'
+                        : steps.a32 === 'sending' ? 'bg-indigo-100 text-indigo-600 border-indigo-200'
+                        : 'bg-indigo-100 text-indigo-600 border-indigo-200'
+                      : step.num <= 2 ? 'bg-green-100 text-green-700 border-green-200'
+                      : 'bg-gray-100 text-gray-500 border-gray-200'
                   )}>
                     {step.num}
                   </div>
-                  {!isLast && <div className="w-px h-3 bg-gray-700 mt-1" />}
+                  {!isLast && <div className="w-px h-3 bg-gray-200 mt-1" />}
                 </div>
 
                 {/* Direction icon */}
                 <div className={clsx(
                   'w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0',
-                  step.direction === 'outbound' ? 'bg-indigo-900/50' : 'bg-teal-900/50'
+                  step.direction === 'outbound' ? 'bg-indigo-100' : 'bg-teal-100'
                 )}>
                   {step.direction === 'outbound'
-                    ? <ArrowUpRight className="w-3.5 h-3.5 text-indigo-400" />
-                    : <ArrowDownLeft className="w-3.5 h-3.5 text-teal-400" />
+                    ? <ArrowUpRight className="w-3.5 h-3.5 text-indigo-500" />
+                    : <ArrowDownLeft className="w-3.5 h-3.5 text-teal-500" />
                   }
                 </div>
 
@@ -368,8 +368,8 @@ export default function D4GMessagesPage() {
                 <span className={clsx(
                   'text-[10px] font-bold px-2 py-0.5 rounded border font-mono flex-shrink-0',
                   step.direction === 'outbound'
-                    ? 'bg-indigo-900/50 text-indigo-300 border-indigo-700/40'
-                    : 'bg-teal-900/50 text-teal-300 border-teal-700/40'
+                    ? 'bg-indigo-100 text-indigo-600 border-indigo-200'
+                    : 'bg-teal-100 text-teal-600 border-teal-200'
                 )}>
                   {step.type}
                 </span>
@@ -378,7 +378,7 @@ export default function D4GMessagesPage() {
                 <span className="text-xs text-gray-500 flex-shrink-0">{step.dirLabel}</span>
 
                 {/* Category */}
-                <span className="text-xs text-gray-300 flex-1">{step.category}</span>
+                <span className="text-xs text-gray-700 flex-1">{step.category}</span>
 
                 {/* Status / action */}
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -388,7 +388,7 @@ export default function D4GMessagesPage() {
                   {payload && (
                     <button
                       onClick={() => setExpandedStep(isExpanded ? null : step.num)}
-                      className="text-gray-500 hover:text-gray-300 transition-colors"
+                      className="text-gray-400 hover:text-gray-700 transition-colors"
                     >
                       {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </button>
@@ -401,8 +401,8 @@ export default function D4GMessagesPage() {
                 <div className={clsx(
                   'mx-5 mb-3 px-3 py-2 rounded-lg text-xs',
                   a32Result.error
-                    ? 'bg-red-900/20 border border-red-800/40 text-red-300'
-                    : 'bg-green-900/20 border border-green-800/40 text-green-300'
+                    ? 'bg-red-50 border border-red-200 text-red-600'
+                    : 'bg-green-50 border border-green-200 text-green-700'
                 )}>
                   {a32Result.error ? (
                     <>HTTP {a32Result.http ?? 'ERR'} — {a32Result.error}</>
@@ -414,7 +414,7 @@ export default function D4GMessagesPage() {
 
               {/* Expanded payload */}
               {isExpanded && payload && (
-                <div className="mx-5 mb-3 bg-gray-950 rounded-lg p-3 max-h-64 overflow-y-auto">
+                <div className="mx-5 mb-3 bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto">
                   <JsonHighlight json={payload} />
                 </div>
               )}
@@ -425,50 +425,50 @@ export default function D4GMessagesPage() {
 
       {/* Message log table */}
       <div className="card">
-        <h3 className="text-sm font-semibold text-white mb-3">Message Log</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">Message Log</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className="border-b border-gray-700">
+            <thead className="border-b border-gray-200">
               <tr>
-                <th className="text-left text-gray-400 font-medium pb-2 pr-4">Type</th>
-                <th className="text-left text-gray-400 font-medium pb-2 pr-4">Direction</th>
-                <th className="text-left text-gray-400 font-medium pb-2 pr-4">Timestamp</th>
-                <th className="text-left text-gray-400 font-medium pb-2 pr-4">Status</th>
-                <th className="text-left text-gray-400 font-medium pb-2 pr-4">HTTP</th>
-                <th className="text-left text-gray-400 font-medium pb-2" />
+                <th className="text-left text-gray-500 font-medium pb-2 pr-4">Type</th>
+                <th className="text-left text-gray-500 font-medium pb-2 pr-4">Direction</th>
+                <th className="text-left text-gray-500 font-medium pb-2 pr-4">Timestamp</th>
+                <th className="text-left text-gray-500 font-medium pb-2 pr-4">Status</th>
+                <th className="text-left text-gray-500 font-medium pb-2 pr-4">HTTP</th>
+                <th className="text-left text-gray-500 font-medium pb-2" />
               </tr>
             </thead>
             <tbody>
               {messageLog.map((entry, i) => (
                 <React.Fragment key={i}>
-                  <tr className="border-t border-gray-700/50 hover:bg-gray-800/30 cursor-pointer"
+                  <tr className="border-t border-gray-200 hover:bg-gray-50 cursor-pointer"
                     onClick={() => setExpandedLog(expandedLog === i ? null : i)}>
                     <td className="py-2 pr-4">
                       <span className={clsx(
                         'font-mono font-bold px-1.5 py-0.5 rounded text-[10px] border',
                         entry.direction === 'outbound'
-                          ? 'bg-indigo-900/50 text-indigo-300 border-indigo-700/40'
-                          : 'bg-teal-900/50 text-teal-300 border-teal-700/40'
+                          ? 'bg-indigo-100 text-indigo-600 border-indigo-200'
+                          : 'bg-teal-100 text-teal-600 border-teal-200'
                       )}>
                         {entry.type}
                       </span>
                     </td>
                     <td className="py-2 pr-4">
-                      <span className="flex items-center gap-1 text-gray-400">
+                      <span className="flex items-center gap-1 text-gray-500">
                         {entry.direction === 'outbound'
-                          ? <ArrowUpRight className="w-3 h-3 text-indigo-400" />
-                          : <ArrowDownLeft className="w-3 h-3 text-teal-400" />
+                          ? <ArrowUpRight className="w-3 h-3 text-indigo-500" />
+                          : <ArrowDownLeft className="w-3 h-3 text-teal-500" />
                         }
                         {entry.direction}
                       </span>
                     </td>
-                    <td className="py-2 pr-4 font-mono text-gray-400">{entry.timestamp}</td>
+                    <td className="py-2 pr-4 font-mono text-gray-500">{entry.timestamp}</td>
                     <td className="py-2 pr-4">
                       <span className={clsx(
                         'px-1.5 py-0.5 rounded text-[10px]',
-                        entry.status === 'Sent' ? 'text-green-400 bg-green-900/30'
-                        : entry.status === 'Received' ? 'text-teal-400 bg-teal-900/30'
-                        : 'text-red-400 bg-red-900/30'
+                        entry.status === 'Sent' ? 'text-green-700 bg-green-100'
+                        : entry.status === 'Received' ? 'text-teal-700 bg-teal-100'
+                        : 'text-red-600 bg-red-100'
                       )}>
                         {entry.status}
                       </span>
@@ -476,14 +476,14 @@ export default function D4GMessagesPage() {
                     <td className="py-2 pr-4 font-mono text-gray-500">
                       {entry.http != null ? entry.http : '—'}
                     </td>
-                    <td className="py-2 text-gray-500">
+                    <td className="py-2 text-gray-400">
                       {expandedLog === i ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </td>
                   </tr>
                   {expandedLog === i && (
                     <tr>
                       <td colSpan={6} className="pb-3">
-                        <div className="bg-gray-950 rounded-lg p-3 max-h-48 overflow-y-auto">
+                        <div className="bg-gray-50 rounded-lg p-3 max-h-48 overflow-y-auto">
                           <JsonHighlight json={entry.payload} />
                         </div>
                       </td>

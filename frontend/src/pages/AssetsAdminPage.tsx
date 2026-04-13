@@ -73,11 +73,11 @@ const DEMO_ASSETS: Asset[] = [
 
 function assetTypeBadge(type: string) {
   const cfg: Record<string, { label: string; cls: string; Icon: React.ElementType }> = {
-    EV_CHARGER:     { label: 'EV Charger',      cls: 'bg-orange-900/40 text-orange-400 border-orange-800/40', Icon: Car },
-    SOLAR_PV:       { label: 'Solar PV',         cls: 'bg-yellow-900/40 text-yellow-400 border-yellow-800/40', Icon: Sun },
-    BESS:           { label: 'BESS',             cls: 'bg-blue-900/40 text-blue-400 border-blue-800/40', Icon: Battery },
-    HEAT_PUMP:      { label: 'Heat Pump',        cls: 'bg-green-900/40 text-green-400 border-green-800/40', Icon: Thermometer },
-    FLEXIBLE_LOAD:  { label: 'Flexible Load',    cls: 'bg-gray-700/60 text-gray-300 border-gray-600/40', Icon: Zap },
+    EV_CHARGER:     { label: 'EV Charger',      cls: 'bg-orange-100 text-orange-600 border-orange-200', Icon: Car },
+    SOLAR_PV:       { label: 'Solar PV',         cls: 'bg-yellow-100 text-yellow-600 border-yellow-200', Icon: Sun },
+    BESS:           { label: 'BESS',             cls: 'bg-blue-100 text-blue-600 border-blue-200', Icon: Battery },
+    HEAT_PUMP:      { label: 'Heat Pump',        cls: 'bg-green-100 text-green-700 border-green-200', Icon: Thermometer },
+    FLEXIBLE_LOAD:  { label: 'Flexible Load',    cls: 'bg-gray-100 text-gray-700 border-gray-200', Icon: Zap },
   }
   const c = cfg[type] || cfg['FLEXIBLE_LOAD']
   const { Icon } = c
@@ -92,10 +92,10 @@ function assetTypeBadge(type: string) {
 function statusBadge(status: string) {
   const cls =
     status === 'active' || status === 'ACTIVE'
-      ? 'bg-green-900/40 text-green-400 border-green-800/40'
+      ? 'bg-green-100 text-green-700 border-green-200'
       : status === 'offline' || status === 'OFFLINE'
-      ? 'bg-red-900/40 text-red-400 border-red-800/40'
-      : 'bg-gray-700/60 text-gray-400 border-gray-600/40'
+      ? 'bg-red-100 text-red-600 border-red-200'
+      : 'bg-gray-100 text-gray-500 border-gray-200'
   return (
     <span className={clsx('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border', cls)}>
       {status.toLowerCase()}
@@ -211,8 +211,8 @@ export default function AssetsAdminPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Assets</h1>
-          <p className="text-sm text-gray-400 mt-0.5">DER assets enrolled in flexibility programs</p>
+          <h1 className="text-xl font-bold text-gray-900">Assets</h1>
+          <p className="text-sm text-gray-500 mt-0.5">DER assets enrolled in flexibility programs</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
@@ -233,35 +233,35 @@ export default function AssetsAdminPage() {
         ) : assets.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-500">
             <p className="text-sm">No assets yet</p>
-            <button onClick={() => setShowModal(true)} className="text-xs text-indigo-400 mt-2 hover:text-indigo-300">
+            <button onClick={() => setShowModal(true)} className="text-xs text-indigo-500 mt-2 hover:text-indigo-600">
               Register first asset
             </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-800/80 border-b border-gray-700">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Asset ID</th>
-                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Counterparty</th>
-                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Type</th>
-                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Phase</th>
-                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Capacity kW</th>
-                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Branch</th>
-                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Program</th>
-                  <th className="text-center text-xs text-gray-400 font-medium px-4 py-3">Status</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Asset ID</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Counterparty</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Type</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Phase</th>
+                  <th className="text-right text-xs text-gray-500 font-medium px-4 py-3">Capacity kW</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Branch</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Program</th>
+                  <th className="text-center text-xs text-gray-500 font-medium px-4 py-3">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {assets.map((a) => (
-                  <tr key={a.id} className="border-t border-gray-700/50 hover:bg-gray-800/30 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-300 font-medium">{a.asset_ref || a.name || a.id.slice(0, 12)}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">{a.counterparty_name || '—'}</td>
+                  <tr key={a.id} className="border-t border-gray-200 hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700 font-medium">{a.asset_ref || a.name || a.id.slice(0, 12)}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{a.counterparty_name || '—'}</td>
                     <td className="px-4 py-3">{assetTypeBadge(a.type)}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs font-mono">{a.phase || '—'}</td>
-                    <td className="px-4 py-3 text-right font-mono text-gray-300">{a.capacity_kw}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs font-mono">{a.feeder_id || a.dt_id || '—'}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">{a.program_name || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs font-mono">{a.phase || '—'}</td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-700">{a.capacity_kw}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs font-mono">{a.feeder_id || a.dt_id || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{a.program_name || '—'}</td>
                     <td className="px-4 py-3 text-center">{statusBadge(a.status)}</td>
                   </tr>
                 ))}
@@ -274,16 +274,16 @@ export default function AssetsAdminPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 sticky top-0 bg-gray-900">
-              <h2 className="text-sm font-semibold text-white">Register New Asset</h2>
-              <button onClick={() => { setShowModal(false); setForm(EMPTY_FORM) }} className="text-gray-500 hover:text-gray-300">
+          <div className="bg-white border border-gray-200 rounded-xl w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 sticky top-0 bg-white">
+              <h2 className="text-sm font-semibold text-gray-900">Register New Asset</h2>
+              <button onClick={() => { setShowModal(false); setForm(EMPTY_FORM) }} className="text-gray-500 hover:text-gray-700">
                 <X className="w-4 h-4" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Asset Name / ID</label>
+                <label className="block text-xs text-gray-500 mb-1.5">Asset Name / ID</label>
                 <input
                   required
                   type="text"
@@ -295,11 +295,11 @@ export default function AssetsAdminPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Counterparty</label>
+                  <label className="block text-xs text-gray-500 mb-1.5">Counterparty</label>
                   <select
                     value={form.counterparty_id}
                     onChange={(e) => setForm((f) => ({ ...f, counterparty_id: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="">— select —</option>
                     {counterparties.map((cp) => (
@@ -311,11 +311,11 @@ export default function AssetsAdminPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Asset Type</label>
+                  <label className="block text-xs text-gray-500 mb-1.5">Asset Type</label>
                   <select
                     value={form.type}
                     onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="EV_CHARGER">EV Charger</option>
                     <option value="SOLAR_PV">Solar PV</option>
@@ -327,7 +327,7 @@ export default function AssetsAdminPage() {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Nameplate kW</label>
+                  <label className="block text-xs text-gray-500 mb-1.5">Nameplate kW</label>
                   <input
                     required
                     type="number"
@@ -336,15 +336,15 @@ export default function AssetsAdminPage() {
                     value={form.capacity_kw}
                     onChange={(e) => setForm((f) => ({ ...f, capacity_kw: e.target.value }))}
                     placeholder="120"
-                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Phase</label>
+                  <label className="block text-xs text-gray-500 mb-1.5">Phase</label>
                   <select
                     value={form.phase}
                     onChange={(e) => setForm((f) => ({ ...f, phase: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="A">A</option>
                     <option value="B">B</option>
@@ -352,11 +352,11 @@ export default function AssetsAdminPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Branch</label>
+                  <label className="block text-xs text-gray-500 mb-1.5">Branch</label>
                   <select
                     value={form.feeder_id}
                     onChange={(e) => setForm((f) => ({ ...f, feeder_id: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="BR-A">BR-A</option>
                     <option value="BR-B">BR-B</option>
@@ -365,7 +365,7 @@ export default function AssetsAdminPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">MPAN</label>
+                <label className="block text-xs text-gray-500 mb-1.5">MPAN</label>
                 <input
                   type="text"
                   value={form.mpan}
@@ -375,11 +375,11 @@ export default function AssetsAdminPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Linked Program</label>
+                <label className="block text-xs text-gray-500 mb-1.5">Linked Program</label>
                 <select
                   value={form.program_id}
                   onChange={(e) => setForm((f) => ({ ...f, program_id: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-600 text-gray-100 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 >
                   <option value="">— none —</option>
                   {programs.map((p) => (
@@ -392,7 +392,7 @@ export default function AssetsAdminPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Latitude (optional)</label>
+                  <label className="block text-xs text-gray-500 mb-1.5">Latitude (optional)</label>
                   <input
                     type="number"
                     step="any"
@@ -403,7 +403,7 @@ export default function AssetsAdminPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Longitude (optional)</label>
+                  <label className="block text-xs text-gray-500 mb-1.5">Longitude (optional)</label>
                   <input
                     type="number"
                     step="any"

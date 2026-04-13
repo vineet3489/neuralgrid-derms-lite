@@ -100,23 +100,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
+        <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className={clsx('flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full',
-              wsConnected ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400')}>
-              <div className={clsx('w-1.5 h-1.5 rounded-full', wsConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400')} />
+              wsConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600')}>
+              <div className={clsx('w-1.5 h-1.5 rounded-full', wsConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500')} />
               {wsConnected ? 'Live' : 'Reconnecting...'}
             </div>
-            <span className="text-sm text-gray-400">Auzance Distribution Network · EDF Réseau</span>
+            <span className="text-sm text-gray-500">Auzance Distribution Network · EDF Réseau</span>
           </div>
           {criticalAlerts.length > 0 && (
-            <div className="flex items-center gap-1.5 bg-red-900/50 text-red-400 px-3 py-1 rounded-full text-xs border border-red-800/50">
+            <div className="flex items-center gap-1.5 bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs border border-red-200">
               <Bell className="w-3.5 h-3.5 animate-pulse" />
               {criticalAlerts.length} Critical
             </div>
           )}
         </header>
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-950">{children}</main>
+        <main className="flex-1 overflow-y-auto p-6 bg-gray-50">{children}</main>
       </div>
     </div>
   )

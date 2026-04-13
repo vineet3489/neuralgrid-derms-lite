@@ -78,21 +78,21 @@ function ForecastTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload as ForecastSlot
   return (
-    <div className="bg-gray-800 border border-gray-600 rounded-lg p-3 text-xs shadow-xl">
-      <p className="font-semibold text-gray-200 mb-1.5">{d?.time}</p>
+    <div className="bg-white border border-gray-200 rounded-lg p-3 text-xs shadow-xl">
+      <p className="font-semibold text-gray-900 mb-1.5">{d?.time}</p>
       <div className="flex justify-between gap-4">
-        <span className="text-gray-400">DT Load</span>
-        <span className="font-mono text-white">{d?.totalLoad} kW</span>
+        <span className="text-gray-500">DT Load</span>
+        <span className="font-mono text-gray-900">{d?.totalLoad} kW</span>
       </div>
       <div className="flex justify-between gap-4">
-        <span className="text-gray-400">DT %</span>
-        <span className={clsx('font-mono', d?.dtPct > 100 ? 'text-red-400' : d?.dtPct > 75 ? 'text-amber-400' : 'text-gray-300')}>
+        <span className="text-gray-500">DT %</span>
+        <span className={clsx('font-mono', d?.dtPct > 100 ? 'text-red-400' : d?.dtPct > 75 ? 'text-amber-400' : 'text-gray-700')}>
           {d?.dtPct}%
         </span>
       </div>
       {d?.evSurge && <div className="text-blue-400 mt-1">EV surge window</div>}
       {d?.violation && <div className="text-red-400 mt-1 font-semibold">Thermal violation</div>}
-      <div className="text-gray-500 mt-1 text-[10px]">Click bar to snap slider →</div>
+      <div className="text-gray-400 mt-1 text-[10px]">Click bar to snap slider →</div>
     </div>
   )
 }
@@ -204,10 +204,10 @@ function branchStatusBadge(thermal: string, voltage: string) {
   const isCritical = thermal === 'CRITICAL' || voltage === 'CRITICAL'
   const isWarning = !isCritical && (thermal === 'WARNING' || voltage !== 'NORMAL')
   const cls = isCritical
-    ? 'bg-red-900/40 text-red-400 border-red-800/40'
+    ? 'bg-red-100 text-red-600 border-red-200'
     : isWarning
-    ? 'bg-amber-900/40 text-amber-400 border-amber-800/40'
-    : 'bg-green-900/30 text-green-400 border-green-800/30'
+    ? 'bg-amber-100 text-amber-600 border-amber-200'
+    : 'bg-green-100 text-green-700 border-green-200'
   const label = isCritical ? 'Critical' : isWarning ? 'Warning' : 'Normal'
   return <span className={clsx('inline-flex px-2 py-0.5 rounded text-[10px] font-semibold border', cls)}>{label}</span>
 }
@@ -263,40 +263,40 @@ export default function ForecastPage() {
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
       {/* Workflow breadcrumb */}
-      <div className="flex items-center gap-1 text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-lg px-4 py-2">
+      <div className="flex items-center gap-1 text-xs text-gray-500 bg-white border border-gray-200 rounded-lg px-4 py-2">
         <span className="text-indigo-400 font-medium">Step 1</span>
-        <span className="mx-1.5 text-gray-700">·</span>
-        <span className="font-medium text-white">Look-Ahead &amp; Power Flow</span>
-        <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-600" />
+        <span className="mx-1.5 text-gray-300">·</span>
+        <span className="font-medium text-gray-900">Look-Ahead &amp; Power Flow</span>
+        <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-400" />
         <span>Step 2 · OE Dispatch</span>
-        <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-600" />
+        <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-400" />
         <span>Step 3 · IEC Messages</span>
       </div>
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Look-Ahead &amp; Power Flow</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <h1 className="text-xl font-bold text-gray-900">Look-Ahead &amp; Power Flow</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
             DT-AUZ-001 · 48 × PT30M slots · {DT_LIMIT} kW limit · Click a bar to inspect that slot
           </p>
         </div>
-        <div className="flex items-center gap-1.5 bg-indigo-950/60 border border-indigo-800/40 rounded-lg px-3 py-1.5">
-          <Zap className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="text-xs text-indigo-300 font-medium">{result ? result.engine : 'Powsybl'}</span>
+        <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
+          <Zap className="w-3.5 h-3.5 text-indigo-500" />
+          <span className="text-xs text-indigo-600 font-medium">{result ? result.engine : 'Powsybl'}</span>
           {!result && <span className="text-xs text-gray-500">OpenLoadFlow</span>}
         </div>
       </div>
 
       {/* Violation banner */}
       {violations.length > 0 && (
-        <div className="flex items-start gap-3 bg-red-950/20 border border-red-800/40 rounded-lg px-4 py-3">
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
           <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
-            <p className="text-sm text-red-300 font-semibold">
+            <p className="text-sm text-red-600 font-semibold">
               Forecast violation — Branch B thermal overload {violations[0].time}–{violations[violations.length - 1].time}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-gray-500 mt-0.5">
               Peak {peakSlot.totalLoad.toFixed(0)} kW · {peakSlot.dtPct.toFixed(0)}% of {DT_LIMIT} kW limit · {violations.length} slots in violation
             </p>
           </div>
@@ -305,20 +305,20 @@ export default function ForecastPage() {
 
       {/* 48-slot bar chart */}
       <div className="card">
-        <h3 className="text-sm font-semibold text-white mb-0.5">DT Aggregate Load — 48 × PT30M</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-0.5">DT Aggregate Load — 48 × PT30M</h3>
         <p className="text-xs text-gray-500 mb-4">Click any bar to snap the time slider to that slot</p>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={forecastData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} onClick={handleBarClick} style={{ cursor: 'pointer' }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis
                 dataKey="slot"
-                tick={{ fill: '#9ca3af', fontSize: 9 }}
+                tick={{ fill: '#6b7280', fontSize: 9 }}
                 ticks={X_TICKS}
                 tickFormatter={(v) => TICK_LABELS[v] || ''}
               />
               <YAxis
-                tick={{ fill: '#9ca3af', fontSize: 10 }}
+                tick={{ fill: '#6b7280', fontSize: 10 }}
                 unit=" kW"
                 domain={[0, Math.ceil(Math.max(...forecastData.map(d => d.totalLoad)) / 100) * 100 + 50]}
               />
@@ -365,18 +365,18 @@ export default function ForecastPage() {
       {/* Power flow controls */}
       <div className="card flex items-center gap-6">
         <div className="flex-shrink-0">
-          <div className="text-xs text-gray-400 mb-0.5">DT</div>
-          <div className="text-sm font-semibold text-white">{DEMO_DT.name}</div>
+          <div className="text-xs text-gray-500 mb-0.5">DT</div>
+          <div className="text-sm font-semibold text-gray-900">{DEMO_DT.name}</div>
           <div className="text-xs text-gray-500">{DEMO_DT.thermal_limit_kw} kW limit · 65 HH</div>
         </div>
 
         <div className="flex-1">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-400">Time of day</span>
+            <span className="text-xs text-gray-500">Time of day</span>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-white font-mono">{slotToTime(slotIndex)}</span>
+              <span className="text-sm font-semibold text-gray-900 font-mono">{slotToTime(slotIndex)}</span>
               {evSurge && (
-                <span className="flex items-center gap-1 text-[10px] bg-blue-900/50 text-blue-300 border border-blue-700/40 px-1.5 py-0.5 rounded">
+                <span className="flex items-center gap-1 text-[10px] bg-blue-100 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded">
                   <Car className="w-2.5 h-2.5" /> EV surge active
                 </span>
               )}
@@ -390,7 +390,7 @@ export default function ForecastPage() {
             onChange={(e) => { setSlotIndex(Number(e.target.value)); setResult(null); setRanSlot(null) }}
             className="w-full accent-indigo-500 cursor-pointer"
           />
-          <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+          <div className="flex justify-between text-[9px] text-gray-400 mt-0.5">
             <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:30</span>
           </div>
         </div>
@@ -401,7 +401,7 @@ export default function ForecastPage() {
           className={clsx(
             'flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
             alreadyRan
-              ? 'bg-green-900/40 text-green-400 border border-green-700/40 cursor-default'
+              ? 'bg-green-100 text-green-700 border border-green-200 cursor-default'
               : 'btn-primary'
           )}
         >
@@ -413,18 +413,18 @@ export default function ForecastPage() {
 
       {/* Running state */}
       {running && (
-        <div className="card flex flex-col items-center justify-center py-10 text-gray-400">
+        <div className="card flex flex-col items-center justify-center py-10 text-gray-500">
           <Loader2 className="w-7 h-7 animate-spin mb-3 text-indigo-400" />
           <p className="text-sm font-medium">Running power flow…</p>
-          <p className="text-xs text-gray-500 mt-1">{slotToTime(slotIndex)} · 250 kVA · 3 branches</p>
+          <p className="text-xs text-gray-400 mt-1">{slotToTime(slotIndex)} · 250 kVA · 3 branches</p>
         </div>
       )}
 
       {/* Empty state */}
       {!result && !running && (
         <div className="card flex flex-col items-center justify-center py-10 text-gray-500">
-          <Zap className="w-7 h-7 mb-3 text-gray-600" />
-          <p className="text-sm">Click a bar or move the slider, then <strong className="text-gray-400">Run Power Flow</strong></p>
+          <Zap className="w-7 h-7 mb-3 text-gray-400" />
+          <p className="text-sm">Click a bar or move the slider, then <strong className="text-gray-700">Run Power Flow</strong></p>
         </div>
       )}
 
@@ -435,19 +435,19 @@ export default function ForecastPage() {
           <div className={clsx(
             'rounded-xl border px-5 py-3 flex items-center gap-6',
             result.dt.status === 'CRITICAL'
-              ? 'bg-red-950/20 border-red-700/50'
+              ? 'bg-red-50 border-red-200'
               : result.dt.status === 'WARNING'
-              ? 'bg-amber-950/20 border-amber-700/40'
-              : 'bg-green-950/10 border-green-800/30'
+              ? 'bg-amber-50 border-amber-200'
+              : 'bg-green-50 border-green-200'
           )}>
             <div className="flex items-center gap-3">
               {result.dt.status === 'CRITICAL'
                 ? <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
                 : <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
               }
-              <span className="text-sm font-semibold text-white">{result.dt.id}</span>
+              <span className="text-sm font-semibold text-gray-900">{result.dt.id}</span>
             </div>
-            <span className="text-sm font-mono text-gray-200">
+            <span className="text-sm font-mono text-gray-700">
               {result.dt.total_load_kw} / {result.dt.thermal_limit_kw} kW
             </span>
             <div className={clsx(
@@ -460,8 +460,8 @@ export default function ForecastPage() {
             <div className="ml-auto flex items-center gap-2">
               <span className="text-xs text-gray-500">{result.engine} · {slotToTime(slotIndex)}</span>
               {result.violations.length > 0
-                ? <span className="text-xs text-red-400 font-medium">{result.violations.length} violation{result.violations.length > 1 ? 's' : ''}</span>
-                : <span className="text-xs text-green-400">No violations</span>
+                ? <span className="text-xs text-red-500 font-medium">{result.violations.length} violation{result.violations.length > 1 ? 's' : ''}</span>
+                : <span className="text-xs text-green-500">No violations</span>
               }
             </div>
           </div>
@@ -469,14 +469,14 @@ export default function ForecastPage() {
           {/* Branch table */}
           <div className="card p-0 overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-gray-800/80 border-b border-gray-700">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left text-xs text-gray-400 font-medium px-4 py-3">Branch</th>
-                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Households</th>
-                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Load (kW)</th>
-                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">Loading %</th>
-                  <th className="text-right text-xs text-gray-400 font-medium px-4 py-3">V_end (pu)</th>
-                  <th className="text-center text-xs text-gray-400 font-medium px-4 py-3">Status</th>
+                  <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Branch</th>
+                  <th className="text-right text-xs text-gray-500 font-medium px-4 py-3">Households</th>
+                  <th className="text-right text-xs text-gray-500 font-medium px-4 py-3">Load (kW)</th>
+                  <th className="text-right text-xs text-gray-500 font-medium px-4 py-3">Loading %</th>
+                  <th className="text-right text-xs text-gray-500 font-medium px-4 py-3">V_end (pu)</th>
+                  <th className="text-center text-xs text-gray-500 font-medium px-4 py-3">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -484,23 +484,23 @@ export default function ForecastPage() {
                   <tr
                     key={br.branch_id}
                     className={clsx(
-                      'border-t border-gray-700/50',
+                      'border-t border-gray-200',
                       (br.thermal_status === 'CRITICAL' || br.voltage_status === 'CRITICAL')
-                        ? 'bg-red-950/10'
+                        ? 'bg-red-50'
                         : (br.thermal_status === 'WARNING' || br.voltage_status !== 'NORMAL')
-                        ? 'bg-amber-950/10'
+                        ? 'bg-amber-50'
                         : ''
                     )}
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-300 font-medium">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700 font-medium">
                       {br.branch_id}
-                      <span className="ml-2 text-gray-600">Phase {br.phase}</span>
+                      <span className="ml-2 text-gray-400">Phase {br.phase}</span>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-400 text-xs">{br.households} HH</td>
+                    <td className="px-4 py-3 text-right text-gray-500 text-xs">{br.households} HH</td>
                     <td className="px-4 py-3 text-right font-mono">
                       <span className={clsx(
                         br.thermal_status === 'CRITICAL' ? 'text-red-400' :
-                        br.thermal_status === 'WARNING' ? 'text-amber-400' : 'text-gray-200'
+                        br.thermal_status === 'WARNING' ? 'text-amber-400' : 'text-gray-800'
                       )}>
                         {br.total_load_kw}
                       </span>
@@ -511,13 +511,13 @@ export default function ForecastPage() {
                     <td className="px-4 py-3 text-right font-mono">
                       <span className={clsx(
                         br.loading_pct > 100 ? 'text-red-400 font-bold' :
-                        br.loading_pct > 75 ? 'text-amber-400' : 'text-gray-300'
+                        br.loading_pct > 75 ? 'text-amber-400' : 'text-gray-700'
                       )}>
                         {br.loading_pct.toFixed(0)}%
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
-                      <span className={clsx(br.voltage_status === 'NORMAL' ? 'text-gray-300' : 'text-red-400')}>
+                      <span className={clsx(br.voltage_status === 'NORMAL' ? 'text-gray-700' : 'text-red-400')}>
                         {br.v_end_pu.toFixed(3)}
                       </span>
                     </td>
@@ -532,29 +532,29 @@ export default function ForecastPage() {
 
           {/* EV charger detail */}
           {result.ev_surge && (
-            <div className="card border-blue-900/40 bg-blue-950/10">
-              <h3 className="text-xs font-semibold text-blue-300 mb-3">EV Chargers active on Branch B</h3>
+            <div className="card border-blue-200 bg-blue-50">
+              <h3 className="text-xs font-semibold text-blue-600 mb-3">EV Chargers active on Branch B</h3>
               <table className="w-full text-xs">
                 <thead>
                   <tr>
-                    <th className="text-left text-gray-400 font-medium pb-2">ID</th>
-                    <th className="text-left text-gray-400 font-medium pb-2">Location</th>
-                    <th className="text-right text-gray-400 font-medium pb-2">kW</th>
-                    <th className="text-left text-gray-400 font-medium pb-2">Phase</th>
+                    <th className="text-left text-gray-500 font-medium pb-2">ID</th>
+                    <th className="text-left text-gray-500 font-medium pb-2">Location</th>
+                    <th className="text-right text-gray-500 font-medium pb-2">kW</th>
+                    <th className="text-left text-gray-500 font-medium pb-2">Phase</th>
                   </tr>
                 </thead>
                 <tbody>
                   {EV_CHARGERS_DEMO.filter(ev => ev.branch_id === 'BR-B').map((ev) => (
-                    <tr key={ev.id} className="border-t border-gray-700/40">
-                      <td className="py-1.5 font-mono text-gray-300">{ev.id}</td>
-                      <td className="py-1.5 text-gray-400">{ev.label}</td>
-                      <td className="py-1.5 text-right font-mono text-blue-400 font-semibold">{ev.kw}</td>
-                      <td className="py-1.5 text-gray-500 pl-4">Phase B</td>
+                    <tr key={ev.id} className="border-t border-gray-200">
+                      <td className="py-1.5 font-mono text-gray-700">{ev.id}</td>
+                      <td className="py-1.5 text-gray-500">{ev.label}</td>
+                      <td className="py-1.5 text-right font-mono text-blue-500 font-semibold">{ev.kw}</td>
+                      <td className="py-1.5 text-gray-400 pl-4">Phase B</td>
                     </tr>
                   ))}
-                  <tr className="border-t border-gray-600">
-                    <td colSpan={2} className="py-1.5 text-gray-400 font-medium">Total EV load</td>
-                    <td className="py-1.5 text-right font-mono text-blue-400 font-bold">
+                  <tr className="border-t border-gray-300">
+                    <td colSpan={2} className="py-1.5 text-gray-500 font-medium">Total EV load</td>
+                    <td className="py-1.5 text-right font-mono text-blue-500 font-bold">
                       {EV_CHARGERS_DEMO.filter(ev => ev.branch_id === 'BR-B').reduce((s, ev) => s + ev.kw, 0)} kW
                     </td>
                     <td />
@@ -564,24 +564,49 @@ export default function ForecastPage() {
             </div>
           )}
 
-          {/* Generate OE CTA */}
+          {/* Available Flex Program panel */}
           {result.violations.length > 0 && (
-            <div className="flex items-center justify-between bg-red-950/20 border border-red-800/40 rounded-lg px-4 py-3">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                <p className="text-sm text-red-300">
-                  <span className="font-semibold">
-                    {result.violations.map(v => `Branch ${v.phase}`).join(', ')} overloaded
-                  </span>
-                  {' '}— thermal constraint at {slotToTime(slotIndex)}. Curtail EV charging via D4G A38 dispatch.
-                </p>
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">Available Flex Program</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700 border border-green-200">Active</span>
+                  </div>
+                  <h3 className="text-sm font-bold text-gray-900 mb-1">EDF Réseau Peak Flex</h3>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs text-gray-600 mb-3">
+                    <div><span className="text-gray-400">Type</span> · Thermal constraint relief</div>
+                    <div><span className="text-gray-400">DT</span> · DT-AUZ-001</div>
+                    <div><span className="text-gray-400">Assets</span> · 3 EV chargers on Branch B</div>
+                    <div><span className="text-gray-400">Lead time</span> · 15 min</div>
+                    <div><span className="text-gray-400">Flex capacity</span> · <span className="font-semibold text-gray-800">350 kW curtailable</span></div>
+                    <div><span className="text-gray-400">Price</span> · €85 / MWh</div>
+                  </div>
+                  {/* Projected outcome */}
+                  <div className="flex items-center gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-indigo-100">
+                    <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                    <span className="text-gray-600">
+                      Dispatch full curtailment →
+                      <span className="font-semibold text-gray-900 mx-1">DT load: ~{Math.round((result.dt.total_load_kw - 350) * 10) / 10} kW</span>
+                      ({Math.round(((result.dt.total_load_kw - 350) / result.dt.thermal_limit_kw) * 100)}% of limit) · Violation resolved
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => navigate('/oe')}
+                    className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-2 rounded-lg font-medium transition-colors"
+                  >
+                    Generate OE <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => navigate('/admin/programs')}
+                    className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-600 text-xs px-3 py-2 rounded-lg font-medium border border-gray-200 transition-colors"
+                  >
+                    View Program
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={() => navigate('/oe')}
-                className="flex-shrink-0 flex items-center gap-1.5 bg-red-700 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded font-medium transition-colors ml-4"
-              >
-                Generate OE <ChevronRight className="w-3.5 h-3.5" />
-              </button>
             </div>
           )}
         </>

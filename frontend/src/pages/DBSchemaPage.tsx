@@ -493,17 +493,17 @@ const RELATIONSHIPS = [
 
 function ColRow({ col }: { col: Column }) {
   return (
-    <tr className="border-t border-gray-800/60 text-xs">
-      <td className="py-1.5 pr-3 font-mono text-gray-200 flex items-center gap-1.5">
+    <tr className="border-t border-gray-200 text-xs">
+      <td className="py-1.5 pr-3 font-mono text-gray-800 flex items-center gap-1.5">
         {col.pk && <Key className="w-3 h-3 text-amber-400 flex-shrink-0" />}
         {col.fk && !col.pk && <Link className="w-3 h-3 text-blue-400 flex-shrink-0" />}
         {!col.pk && !col.fk && <span className="w-3 flex-shrink-0" />}
         {col.name}
       </td>
-      <td className="py-1.5 pr-3 font-mono text-indigo-300">{col.type}</td>
+      <td className="py-1.5 pr-3 font-mono text-indigo-600">{col.type}</td>
       <td className="py-1.5 pr-3 text-gray-500">{col.nullable ? 'nullable' : ''}</td>
       <td className="py-1.5">
-        {col.fk && <span className="text-blue-400">→ {col.fk}</span>}
+        {col.fk && <span className="text-blue-500">→ {col.fk}</span>}
         {col.note && <span className="text-gray-500 italic">{col.note}</span>}
       </td>
     </tr>
@@ -514,23 +514,23 @@ function TableCard({ table: t, defaultOpen }: { table: TableDef; defaultOpen?: b
   const [open, setOpen] = useState(defaultOpen ?? false)
   const fkCount = t.columns.filter(c => c.fk).length
   return (
-    <div className="border border-gray-800 rounded-lg overflow-hidden">
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-3 px-4 py-2.5 bg-gray-900 hover:bg-gray-800/70 transition-colors text-left"
+        className="w-full flex items-center gap-3 px-4 py-2.5 bg-white hover:bg-gray-50 transition-colors text-left"
       >
         <Database className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-        <span className="font-mono text-sm font-semibold text-white flex-1">{t.table}</span>
+        <span className="font-mono text-sm font-semibold text-gray-900 flex-1">{t.table}</span>
         <span className="text-[10px] text-gray-500">{t.columns.length} cols</span>
         {fkCount > 0 && (
-          <span className="text-[10px] text-blue-400">{fkCount} FK</span>
+          <span className="text-[10px] text-blue-500">{fkCount} FK</span>
         )}
         {open ? <ChevronDown className="w-3.5 h-3.5 text-gray-500" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-500" />}
       </button>
 
       {open && (
-        <div className="px-4 pb-3 bg-gray-950">
-          <p className="text-xs text-gray-400 italic py-2 border-b border-gray-800 mb-2">{t.description}</p>
+        <div className="px-4 pb-3 bg-gray-50">
+          <p className="text-xs text-gray-500 italic py-2 border-b border-gray-200 mb-2">{t.description}</p>
           <table className="w-full">
             <thead>
               <tr className="text-[10px] text-gray-500 uppercase tracking-wider">
@@ -559,8 +559,8 @@ export default function DBSchemaPage() {
     <div className="space-y-5 max-w-5xl mx-auto">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-white">Database Schema</h1>
-        <p className="text-sm text-gray-400 mt-0.5">
+        <h1 className="text-xl font-bold text-gray-900">Database Schema</h1>
+        <p className="text-sm text-gray-500 mt-0.5">
           PostgreSQL · SQLAlchemy ORM · {totalTables} tables · {totalCols} columns · all tables are deployment-scoped
         </p>
       </div>
@@ -568,33 +568,33 @@ export default function DBSchemaPage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-3">
         {SCHEMA.map(d => (
-          <div key={d.name} className="bg-gray-900 border border-gray-800 rounded-lg p-3">
+          <div key={d.name} className="bg-white border border-gray-200 rounded-lg p-3">
             <div className={clsx('w-2 h-2 rounded-full inline-block mr-2', d.color)} />
-            <span className="text-xs text-gray-400">{d.name}</span>
-            <div className="text-lg font-bold text-white mt-0.5">{d.tables.length}</div>
-            <div className="text-[10px] text-gray-600">tables</div>
+            <span className="text-xs text-gray-500">{d.name}</span>
+            <div className="text-lg font-bold text-gray-900 mt-0.5">{d.tables.length}</div>
+            <div className="text-[10px] text-gray-400">tables</div>
           </div>
         ))}
       </div>
 
       {/* Relationships */}
-      <div className="border border-gray-800 rounded-lg overflow-hidden">
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
         <button
           onClick={() => setRelOpen(o => !o)}
-          className="w-full flex items-center gap-3 px-4 py-3 bg-gray-900 hover:bg-gray-800/70 text-left"
+          className="w-full flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50 text-left"
         >
-          <Link className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-          <span className="text-sm font-semibold text-white flex-1">Foreign Key Relationships</span>
+          <Link className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+          <span className="text-sm font-semibold text-gray-900 flex-1">Foreign Key Relationships</span>
           <span className="text-[10px] text-gray-500">{RELATIONSHIPS.length} relationships</span>
           {relOpen ? <ChevronDown className="w-3.5 h-3.5 text-gray-500" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-500" />}
         </button>
         {relOpen && (
-          <div className="px-4 pb-3 bg-gray-950 space-y-1.5 pt-2">
+          <div className="px-4 pb-3 bg-gray-50 space-y-1.5 pt-2">
             {RELATIONSHIPS.map((r, i) => (
               <div key={i} className="flex items-start gap-2 text-xs">
-                <span className="font-mono text-indigo-300 w-48 flex-shrink-0">{r.from}</span>
-                <span className="text-gray-600">→</span>
-                <span className="font-mono text-indigo-300 w-48 flex-shrink-0">{r.to}</span>
+                <span className="font-mono text-indigo-600 w-48 flex-shrink-0">{r.from}</span>
+                <span className="text-gray-400">→</span>
+                <span className="font-mono text-indigo-600 w-48 flex-shrink-0">{r.to}</span>
                 <span className="text-gray-500">{r.label}</span>
               </div>
             ))}
@@ -607,8 +607,8 @@ export default function DBSchemaPage() {
         <div key={domain.name}>
           <div className="flex items-center gap-2 mb-2">
             <span className={clsx('w-2.5 h-2.5 rounded-sm flex-shrink-0', domain.color)} />
-            <h2 className="text-sm font-semibold text-gray-300">{domain.name}</h2>
-            <span className="text-xs text-gray-600">({domain.tables.length} tables)</span>
+            <h2 className="text-sm font-semibold text-gray-700">{domain.name}</h2>
+            <span className="text-xs text-gray-400">({domain.tables.length} tables)</span>
           </div>
           <div className="space-y-2">
             {domain.tables.map(t => <TableCard key={t.table} table={t} />)}
