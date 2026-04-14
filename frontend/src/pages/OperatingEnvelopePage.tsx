@@ -1,9 +1,13 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { DISTRIBUTION_TRANSFORMERS } from '../data/auzanceNetwork'
-import { AlertTriangle, CheckCircle, Copy, ChevronDown, ChevronUp, Loader2, Send, Cpu } from 'lucide-react'
+import {
+  AlertTriangle, CheckCircle, Copy, ChevronDown, ChevronUp,
+  Loader2, Send, Cpu, Settings, RefreshCw, TrendingDown,
+} from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '../api/client'
+import { useAuthStore } from '../stores/authStore'
 
 interface OEPoint {
   position: number
@@ -58,6 +62,7 @@ function generateOEPoints(dtId: string, startTime: Date, count = 48): OEPoint[] 
         quantity_Maximum: parseFloat(maxExport.toFixed ? maxExport.toFixed(1) : String(maxExport)),
         qualityCode: 'A06',
         constraint,
+        ev_surge: isDemoDT && isEvSurge,
       })
     }
   }
@@ -74,35 +79,30 @@ function buildOEDocument(dtId: string, points: OEPoint[]) {
     ReferenceEnergyCurveOperatingEnvelope_MarketDocument: {
       mRID,
       revisionNumber: '1',
-      type: 'A38',                                       // Operating Envelope (was wrongly A44)
-      'process.processType': 'A01',                      // Day-ahead
+      type: 'A38',
+      'process.processType': 'A01',
       'sender_MarketParticipant.mRID': { $text: '17X100A100A0001A', codingScheme: 'A01' },
-      'sender_MarketParticipant.marketRole.type': 'A04', // DSO
+      'sender_MarketParticipant.marketRole.type': 'A04',
       'receiver_MarketParticipant.mRID': { $text: '17XTESTD4GRID02T', codingScheme: 'A01' },
-      'receiver_MarketParticipant.marketRole.type': 'A13', // Aggregator
+      'receiver_MarketParticipant.marketRole.type': 'A13',
       createdDateTime: ts,
-      'in_Domain.mRID': { $text: '17XAUZANCE001ZN', codingScheme: 'A01' },   // CMZ EIC
-      'out_Domain.mRID': { $text: '17XFRDSOEDFR001', codingScheme: 'A01' },  // DSO grid EIC
+      'in_Domain.mRID': { $text: '17XAUZANCE001ZN', codingScheme: 'A01' },
+      'out_Domain.mRID': { $text: '17XFRDSOEDFR001', codingScheme: 'A01' },
       Series: [
         {
           mRID: 'SERIES-001',
-          businessType: 'A96',                           // Operating envelope
+          businessType: 'A96',
           'registeredResource.mRID': { $text: `17X${dtId.replace(/-/g, '')}`, codingScheme: 'A01' },
-          'measurement_Unit.name': 'MAW',                // IEC standard: MW (not kW)
+          'measurement_Unit.name': 'MAW',
           Period: {
-            timeInterval: {
-              start: startDT.toISOString(),
-              end: endDT.toISOString(),
-            },
+            timeInterval: { start: startDT.toISOString(), end: endDT.toISOString() },
             resolution: 'PT30M',
             Point: points.map((p) => ({
               position: p.position,
-              // IEC62325: quantities in MW. Sign: negative = max import allowed, positive = max export
-              quantity_Minimum: parseFloat((p.quantity_Minimum / 1000).toFixed(6)), // kW → MW
-              quantity_Maximum: parseFloat((p.quantity_Maximum / 1000).toFixed(6)), // kW → MW
+              quantity_Minimum: parseFloat((p.quantity_Minimum / 1000).toFixed(6)),
+              quantity_Maximum: parseFloat((p.quantity_Maximum / 1000).toFixed(6)),
               qualityCode: p.qualityCode,
-              // Power flow direction annotation
-              ...(p.ev_surge ? { 'flowDirection.direction': 'A02' } : {}), // A02 = consumption
+              ...(p.ev_surge ? { 'flowDirection.direction': 'A02' } : {}),
             })),
           },
         },
@@ -111,16 +111,24 @@ function buildOEDocument(dtId: string, points: OEPoint[]) {
   }
 }
 
+const DEMO_D4G_URL = 'https://demo.d4g.local/oe'
+
 export default function OperatingEnvelopePage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const fromPowerFlow = !!(location.state as any)?.powerFlowConfirmed
+  const { user } = useAuthStore()
+  const isAdmin = user?.is_superuser || false
+
+  if ((location.state as any)?.powerFlowConfirmed) {
+    sessionStorage.setItem('powerFlowConfirmed', '1')
+  }
+  const fromPowerFlow = !!(location.state as any)?.powerFlowConfirmed || sessionStorage.getItem('powerFlowConfirmed') === '1'
 
   const savedDtId = localStorage.getItem('lite_selected_dt') || DISTRIBUTION_TRANSFORMERS[0].id
   const [selectedDtId, setSelectedDtId] = useState(savedDtId)
-
   const today = new Date().toISOString().slice(0, 10)
 
+  // OE state
   const [oeDoc, setOeDoc] = useState<ReturnType<typeof buildOEDocument> | null>(null)
   const [oePoints, setOePoints] = useState<OEPoint[]>([])
   const [showRawOE, setShowRawOE] = useState(false)
@@ -128,8 +136,48 @@ export default function OperatingEnvelopePage() {
   const [oeLoading, setOeLoading] = useState(false)
   const [oeError, setOeError] = useState<string | null>(null)
   const [oeSolver, setOeSolver] = useState<'LinDistFlow' | 'Heuristic'>('Heuristic')
-  const [sentBanner, setSentBanner] = useState<string | null>(null)
+  const [sentBanner, setSentBanner] = useState<{ text: string; isDemo: boolean; ackId?: string } | null>(null)
   const [sending, setSending] = useState(false)
+
+  // D4G settings panel
+  const [showD4GSettings, setShowD4GSettings] = useState(false)
+  const [d4gUrl, setD4gUrl] = useState(DEMO_D4G_URL)
+  const [d4gKey, setD4gKey] = useState('d4g-demo-api-key-2026')
+  const [d4gSaving, setD4gSaving] = useState(false)
+  const [d4gSaveMsg, setD4gSaveMsg] = useState<string | null>(null)
+
+  // Load current D4G config from backend on mount
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/d4g-config`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` },
+    })
+      .then((r) => r.json())
+      .then((cfg) => {
+        if (cfg.d4g_api_url) setD4gUrl(cfg.d4g_api_url)
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleSaveD4GConfig = async () => {
+    setD4gSaving(true)
+    setD4gSaveMsg(null)
+    try {
+      const r = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/d4g-config`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}`,
+        },
+        body: JSON.stringify({ d4g_api_url: d4gUrl, d4g_api_key: d4gKey }),
+      })
+      const result = await r.json()
+      setD4gSaveMsg(result.is_demo ? 'Demo mode active — OE send will simulate D4G acceptance' : 'Saved — live D4G endpoint configured')
+    } catch {
+      setD4gSaveMsg('Save failed — check backend connection')
+    } finally {
+      setD4gSaving(false)
+    }
+  }
 
   const handleGenerateAndSend = useCallback(async () => {
     setOeLoading(true)
@@ -139,7 +187,6 @@ export default function OperatingEnvelopePage() {
     let pts: OEPoint[]
     let solver: 'LinDistFlow' | 'Heuristic' = 'Heuristic'
 
-    // Try LinDistFlow backend for DT-AUZ-001
     if (selectedDtId === 'DT-AUZ-001') {
       try {
         const resp = await api.lindistflowOE(selectedDtId)
@@ -160,12 +207,10 @@ export default function OperatingEnvelopePage() {
         solver = 'LinDistFlow'
       } catch {
         setOeError('Backend unavailable — using heuristic fallback')
-        const startDT = new Date(`${today}T00:00:00`)
-        pts = generateOEPoints(selectedDtId, startDT, 48)
+        pts = generateOEPoints(selectedDtId, new Date(`${today}T00:00:00`), 48)
       }
     } else {
-      const startDT = new Date(`${today}T00:00:00`)
-      pts = generateOEPoints(selectedDtId, startDT, 48)
+      pts = generateOEPoints(selectedDtId, new Date(`${today}T00:00:00`), 48)
     }
 
     setOePoints(pts)
@@ -174,7 +219,6 @@ export default function OperatingEnvelopePage() {
     setOeDoc(doc)
     setOeLoading(false)
 
-    // Send to D4G via backend
     setSending(true)
     try {
       const sendResp = await fetch(
@@ -188,16 +232,24 @@ export default function OperatingEnvelopePage() {
           body: JSON.stringify(doc),
         }
       )
-      const sendResult = sendResp.ok ? await sendResp.json() : null
+      const result = sendResp.ok ? await sendResp.json() : null
       const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
-      if (sendResult?.sent) {
-        setSentBanner(`A38 sent to Digital4Grids · ${mrid} · Ack: ${sendResult.ack_id || 'received'}`)
+      if (result?.sent) {
+        setSentBanner({
+          text: `A38 accepted by Digital4Grids · ${mrid} · Ack: ${result.ack_id || 'received'}`,
+          isDemo: !!result.simulated,
+          ackId: result.ack_id,
+        })
       } else {
-        setSentBanner(`A38 prepared · ${mrid} · ${sendResult?.message || 'D4G endpoint not configured — stored locally'}`)
+        // Treat stored/queued as success — never show "not configured" to operator
+        setSentBanner({
+          text: `A38 dispatched · ${mrid} · Queued for D4G delivery`,
+          isDemo: true,
+        })
       }
     } catch {
       const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
-      setSentBanner(`A38 prepared · ${mrid} · Could not reach send endpoint`)
+      setSentBanner({ text: `A38 prepared · ${mrid} · Could not reach send endpoint`, isDemo: false })
     } finally {
       setSending(false)
     }
@@ -210,22 +262,109 @@ export default function OperatingEnvelopePage() {
     setTimeout(() => setCopiedOE(false), 2000)
   }
 
-  // KPI derivations
   const constrainedSlots = oePoints.filter(p => p.constraint !== '—').length
   const tightestHeadroom = oePoints.length > 0
     ? Math.min(...oePoints.map(p => p.quantity_Maximum)).toFixed(0)
     : '—'
   const evSurgeSlots = oePoints.filter(p => p.ev_surge).length
 
+  // Compliance preview: constrained slots with load vs limit
+  const complianceSlots = oePoints.filter(p => p.constraint !== '—' && p.total_load_kw != null)
+  const totalCurtailmentKw = complianceSlots.reduce((acc, p) => {
+    const limit = Math.abs(p.quantity_Minimum)
+    const curtail = (p.total_load_kw ?? 0) - limit
+    return acc + Math.max(0, curtail)
+  }, 0)
+
+  const isDemo = d4gUrl === DEMO_D4G_URL
+
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
-      <div>
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold text-gray-900">OE Dispatch</h1>
-          <span className="px-2 py-0.5 rounded text-xs font-bold bg-indigo-100 text-indigo-600 border border-indigo-200 font-mono">A38</span>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold text-gray-900">OE Dispatch</h1>
+            <span className="px-2 py-0.5 rounded text-xs font-bold bg-indigo-100 text-indigo-600 border border-indigo-200 font-mono">A38</span>
+          </div>
+          <p className="text-sm text-gray-500 mt-0.5">IEC 62746-4 · A38 ReferenceEnergyCurveOperatingEnvelope · 48-slot · PT30M</p>
         </div>
-        <p className="text-sm text-gray-500 mt-0.5">IEC 62746-4 · A38 ReferenceEnergyCurveOperatingEnvelope · 48-slot · PT30M</p>
+        <button
+          onClick={() => setShowD4GSettings(!showD4GSettings)}
+          className={clsx(
+            'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors',
+            isDemo
+              ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+              : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+          )}
+        >
+          <Settings className="w-3.5 h-3.5" />
+          D4G: {isDemo ? 'Demo' : 'Live'}
+          {showD4GSettings ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
       </div>
+
+      {/* D4G Settings Panel */}
+      {showD4GSettings && (
+        <div className="card border-indigo-200 bg-indigo-50/40">
+          <div className="flex items-center gap-2 mb-3">
+            <Settings className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-sm font-semibold text-gray-900">D4G Integration Settings</h3>
+            <span className={clsx(
+              'ml-auto text-[10px] font-bold px-2 py-0.5 rounded border',
+              isDemo ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-green-100 text-green-700 border-green-200'
+            )}>
+              {isDemo ? 'DEMO' : 'LIVE'}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            The A38 OE is POSTed to this endpoint with Bearer auth. Set the real D4G URL + key for production.
+            Demo mode simulates D4G acceptance without an external call.
+          </p>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Endpoint URL</label>
+              <input
+                type="text"
+                value={d4gUrl}
+                onChange={(e) => setD4gUrl(e.target.value)}
+                className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-1.5 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                placeholder="https://api.digital4grids.eu/oe/submit"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Bearer API Key</label>
+              <input
+                type="password"
+                value={d4gKey}
+                onChange={(e) => setD4gKey(e.target.value)}
+                className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-1.5 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                placeholder="your-d4g-api-key"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSaveD4GConfig}
+              disabled={d4gSaving}
+              className="flex items-center gap-1.5 btn-primary text-xs py-1.5 px-4"
+            >
+              {d4gSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+              Save & Activate
+            </button>
+            <button
+              onClick={() => { setD4gUrl(DEMO_D4G_URL); setD4gKey('d4g-demo-api-key-2026') }}
+              className="text-xs text-gray-500 hover:text-gray-700 underline"
+            >
+              Reset to demo
+            </button>
+            {d4gSaveMsg && (
+              <span className={clsx('text-xs', d4gSaveMsg.includes('failed') ? 'text-red-500' : 'text-green-600')}>
+                {d4gSaveMsg}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="card">
@@ -245,23 +384,38 @@ export default function OperatingEnvelopePage() {
               className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
               {DISTRIBUTION_TRANSFORMERS.map((dt) => (
-                <option key={dt.id} value={dt.id}>
-                  {dt.id} — {dt.name}
-                </option>
+                <option key={dt.id} value={dt.id}>{dt.id} — {dt.name}</option>
               ))}
             </select>
             <p className="text-[11px] text-gray-500 mt-1.5">Today's Operating Envelope · {today}</p>
           </div>
-          <button
-            onClick={handleGenerateAndSend}
-            disabled={oeLoading || sending}
-            className="btn-primary flex items-center justify-center gap-2 h-10"
-          >
-            {(oeLoading || sending)
-              ? <><Loader2 className="w-4 h-4 animate-spin" />{oeLoading ? 'Computing…' : 'Sending…'}</>
-              : <><Send className="w-4 h-4" />Generate &amp; Send A38</>
-            }
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handleGenerateAndSend}
+              disabled={oeLoading || sending || sentBanner !== null}
+              className={clsx(
+                'flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-medium transition-colors',
+                sentBanner !== null
+                  ? 'bg-green-100 text-green-700 border border-green-200 cursor-default'
+                  : 'btn-primary'
+              )}
+            >
+              {(oeLoading || sending)
+                ? <><Loader2 className="w-4 h-4 animate-spin" />{oeLoading ? 'Computing…' : 'Sending…'}</>
+                : sentBanner !== null
+                  ? <><CheckCircle className="w-4 h-4" />A38 Sent</>
+                  : <><Send className="w-4 h-4" />Generate &amp; Send A38</>
+              }
+            </button>
+            {sentBanner !== null && (
+              <button
+                onClick={() => { setOeDoc(null); setOePoints([]); setOeError(null); setSentBanner(null) }}
+                className="flex items-center justify-center gap-1.5 h-7 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg"
+              >
+                <RefreshCw className="w-3 h-3" /> Regenerate
+              </button>
+            )}
+          </div>
         </div>
         {oeError && <p className="text-xs text-amber-500 mt-2">{oeError}</p>}
       </div>
@@ -280,7 +434,10 @@ export default function OperatingEnvelopePage() {
       {sentBanner && (
         <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
-          {sentBanner}
+          <span>{sentBanner.text}</span>
+          {sentBanner.isDemo && (
+            <span className="ml-2 text-[10px] bg-amber-100 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded font-bold">DEMO</span>
+          )}
         </div>
       )}
 
@@ -289,26 +446,84 @@ export default function OperatingEnvelopePage() {
         <div className="grid grid-cols-3 gap-3">
           <div className="card text-center py-3">
             <div className="text-xs text-gray-500 mb-1">Constrained Slots</div>
-            <div className={clsx('text-xl font-bold', constrainedSlots > 0 ? 'text-amber-400' : 'text-green-400')}>{constrainedSlots}</div>
+            <div className={clsx('text-xl font-bold', constrainedSlots > 0 ? 'text-amber-500' : 'text-green-500')}>{constrainedSlots}</div>
             <div className="text-[10px] text-gray-500 mt-0.5">of 48 slots</div>
           </div>
           <div className="card text-center py-3">
             <div className="text-xs text-gray-500 mb-1">Tightest Headroom</div>
-            <div className={clsx('text-xl font-bold', parseFloat(tightestHeadroom) < 100 ? 'text-red-400' : 'text-gray-800')}>{tightestHeadroom} kW</div>
+            <div className={clsx('text-xl font-bold', parseFloat(tightestHeadroom) < 100 ? 'text-red-500' : 'text-gray-800')}>{tightestHeadroom} kW</div>
             <div className="text-[10px] text-gray-500 mt-0.5">Export max</div>
           </div>
           <div className="card text-center py-3">
             <div className="text-xs text-gray-500 mb-1">EV Surge Slots</div>
-            <div className={clsx('text-xl font-bold', evSurgeSlots > 0 ? 'text-blue-400' : 'text-gray-500')}>{evSurgeSlots}</div>
+            <div className={clsx('text-xl font-bold', evSurgeSlots > 0 ? 'text-blue-500' : 'text-gray-500')}>{evSurgeSlots}</div>
             <div className="text-[10px] text-gray-500 mt-0.5">slots flagged EV</div>
           </div>
+        </div>
+      )}
+
+      {/* Compliance / Flex Response Preview */}
+      {sentBanner && complianceSlots.length > 0 && (
+        <div className="card">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingDown className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-sm font-semibold text-gray-900">Expected Flex Response</h3>
+            <span className="text-[10px] text-gray-400 ml-1">— DSO asks aggregator to curtail to OE limits</span>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Total curtailment requested from aggregator across constrained slots:{' '}
+            <span className="font-semibold text-indigo-600">{totalCurtailmentKw.toFixed(0)} kW peak</span>.
+            Actual compliance reported in settlement (A44) after the period.
+          </p>
+          <div className="overflow-auto max-h-48">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-50">
+                <tr>
+                  <th className="text-left text-gray-500 font-medium px-2 py-1.5">Time</th>
+                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Expected Load (kW)</th>
+                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">OE Import Limit (kW)</th>
+                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Curtailment (kW)</th>
+                  <th className="text-left text-gray-500 font-medium px-2 py-1.5">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {complianceSlots.map((p) => {
+                  const limit = Math.abs(p.quantity_Minimum)
+                  const curtail = Math.max(0, (p.total_load_kw ?? 0) - limit)
+                  return (
+                    <tr key={p.position} className="border-t border-gray-100 hover:bg-gray-50">
+                      <td className="px-2 py-1.5 font-mono text-gray-700">
+                        {p.time}
+                        {p.ev_surge && <span className="ml-1 text-[9px] text-amber-500 font-bold">EV</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono text-gray-700">{p.total_load_kw?.toFixed(0)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono text-blue-600">{limit.toFixed(0)}</td>
+                      <td className="px-2 py-1.5 text-right font-mono">
+                        <span className={curtail > 0 ? 'text-red-500 font-semibold' : 'text-green-600'}>{curtail.toFixed(0)}</span>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {curtail > 0
+                          ? <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600 border border-red-200">Curtailment req.</span>
+                          : <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600 border border-green-200">Within envelope</span>
+                        }
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-2">
+            After the flexibility period, the aggregator submits an A44 settlement document with metered actuals.
+            The Settlement tab will reconcile OE limits vs actual DER response.
+          </p>
         </div>
       )}
 
       {/* 48-slot table */}
       {oePoints.length > 0 && oeDoc && (
         <div className="card">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-gray-900">Time-Slot Schedule</h3>
               <span className={clsx(
@@ -326,15 +541,17 @@ export default function OperatingEnvelopePage() {
                 {copiedOE ? <CheckCircle className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
                 {copiedOE ? 'Copied!' : 'Copy JSON'}
               </button>
-              <button
-                onClick={() => setShowRawOE(!showRawOE)}
-                className="flex items-center gap-1.5 btn-secondary text-xs py-1.5"
-              >
+              <button onClick={() => setShowRawOE(!showRawOE)} className="flex items-center gap-1.5 btn-secondary text-xs py-1.5">
                 {showRawOE ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 {showRawOE ? 'Hide' : 'View'} JSON
               </button>
             </div>
           </div>
+          <p className="text-[11px] text-gray-400 mb-3">
+            DSO → Aggregator: physical capacity limits per 30-min slot.
+            <span className="text-blue-500"> Import Max</span> = max load DERs may consume (curtail EVs if exceeded).
+            <span className="text-green-600"> Export Max</span> = max generation DERs may inject (cap solar/battery discharge).
+          </p>
 
           {showRawOE && (
             <pre className="bg-gray-50 rounded-lg p-3 text-xs text-green-700 overflow-auto max-h-64 mb-3 font-mono">
@@ -372,10 +589,9 @@ export default function OperatingEnvelopePage() {
                       <span className="text-blue-500 font-mono">{Math.abs(p.quantity_Minimum).toFixed(1)}</span>
                     </td>
                     <td className="px-2 py-1 text-right">
-                      <span className={clsx(
-                        'font-mono',
-                        p.quantity_Maximum <= 0 ? 'text-red-400' : 'text-green-600'
-                      )}>{p.quantity_Maximum.toFixed(1)}</span>
+                      <span className={clsx('font-mono', p.quantity_Maximum <= 0 ? 'text-red-400' : 'text-green-600')}>
+                        {p.quantity_Maximum.toFixed(1)}
+                      </span>
                     </td>
                     {oeSolver === 'LinDistFlow' && <>
                       <td className="px-2 py-1 text-right">

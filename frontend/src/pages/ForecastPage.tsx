@@ -22,8 +22,10 @@ const DIURNAL = [
   1.70, 1.70, 1.65, 1.60, 1.55, 1.50,
   1.40, 1.20, 1.00, 0.85, 0.72, 0.62,
 ]
-const BASE_LOADS: Record<string, number> = { 'BR-A': 46, 'BR-B': 58, 'BR-C': 27 }
-const EV_SURGE_KW = 350
+// Average base loads per branch (kW) — multiplied by DIURNAL to get 30-min slot demand
+const BASE_LOADS: Record<string, number> = { 'BR-A': 34, 'BR-B': 55, 'BR-C': 17 }
+// 3 community AC Type-2 chargers (22+20+18 kW) on Branch B, 18:00–22:00
+const EV_SURGE_KW = 60
 const DT_LIMIT = DEMO_DT.thermal_limit_kw
 
 function slotToTime(slot: number): string {

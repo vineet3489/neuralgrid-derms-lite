@@ -174,26 +174,29 @@ export const DEMO_DT = {
 
 export const LV_BRANCHES_DEMO: LVBranchDef[] = [
   {
-    id: 'BR-A', phase: 'A', households: 21, length_m: 461,
-    base_load_kw: 98, ev_load_kw: 0,
-    r_ohm: 0.461 * 0.25, x_ohm: 0.461 * 0.08, ampacity_a: 300,
+    // 21 HH, 280m 95mm² cable, 200A ampacity — normal load
+    id: 'BR-A', phase: 'A', households: 21, length_m: 280,
+    base_load_kw: 34, ev_load_kw: 0,
+    r_ohm: 0.280 * 0.25, x_ohm: 0.280 * 0.08, ampacity_a: 200,
   },
   {
-    id: 'BR-B', phase: 'B', households: 34, length_m: 715,
-    base_load_kw: 129, ev_load_kw: 350,  // 3 EVs: 120+110+120 kW
-    r_ohm: 0.715 * 0.25, x_ohm: 0.715 * 0.08, ampacity_a: 300,
+    // 34 HH, 250m 95mm² cable, 220A ampacity — EV congestion branch
+    id: 'BR-B', phase: 'B', households: 34, length_m: 250,
+    base_load_kw: 55, ev_load_kw: 60,  // 3 community AC chargers: 22+20+18 kW
+    r_ohm: 0.250 * 0.25, x_ohm: 0.250 * 0.08, ampacity_a: 220,
   },
   {
-    id: 'BR-C', phase: 'C', households: 10, length_m: 185,
-    base_load_kw: 68, ev_load_kw: 0,
-    r_ohm: 0.185 * 0.25, x_ohm: 0.185 * 0.08, ampacity_a: 200,
+    // 10 HH, 150m 95mm² cable, 160A ampacity — lightly loaded
+    id: 'BR-C', phase: 'C', households: 10, length_m: 150,
+    base_load_kw: 17, ev_load_kw: 0,
+    r_ohm: 0.150 * 0.25, x_ohm: 0.150 * 0.08, ampacity_a: 160,
   },
 ]
 
 export const EV_CHARGERS_DEMO: EVChargerDef[] = [
-  { id: 'EVC-B01', label: 'Chemin des Acacias 1', branch_id: 'BR-B', kw: 120 },
-  { id: 'EVC-B02', label: 'Rue de Bellevue 2',    branch_id: 'BR-B', kw: 110 },
-  { id: 'EVC-B03', label: 'Hameau du Gué 8',      branch_id: 'BR-B', kw: 120 },
+  { id: 'EVC-B01', label: 'Chemin des Acacias 1', branch_id: 'BR-B', kw: 22 },
+  { id: 'EVC-B02', label: 'Rue de Bellevue 2',    branch_id: 'BR-B', kw: 20 },
+  { id: 'EVC-B03', label: 'Hameau du Gué 8',      branch_id: 'BR-B', kw: 18 },
 ]
 
 export const SPG_GROUPS: SPGGroup[] = [

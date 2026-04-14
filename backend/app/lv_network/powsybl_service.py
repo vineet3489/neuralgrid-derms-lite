@@ -6,14 +6,15 @@ radial 400V network: 1 slack bus (DT secondary) + 3 radial branches (A, B, C).
 
 Network parameters from the Auzances reference LV model:
   - 250 kVA transformer, 20kV/400V, tap ratio 1:1 for LV base
-  - Branch A: 21 households, 98 kW base load, 461m cable
-  - Branch B: 34 households, 129 kW base load, 715m cable  ← EV congestion
-  - Branch C: 10 households, 68 kW base load, 185m cable
-  - Cable: 95mm² XLPE, r=0.25 Ω/km, x=0.08 Ω/km, ampacity=300A
+  - Branch A: 21 households, 58 kW peak load, 280m cable
+  - Branch B: 34 households, 94 kW peak load, 250m cable  ← EV congestion
+  - Branch C: 10 households, 29 kW peak load, 150m cable
+  - Cable: 95mm² XLPE, r=0.25 Ω/km, x=0.08 Ω/km
 
-EV surge scenario (Branch B):
-  - 3 EV fast chargers: 120 + 110 + 120 = 350 kW additional
-  - Total Branch B: 479 kW → 213% of DT thermal limit (225 kW)
+EV surge scenario (Branch B, 18:00-22:00 residential charging peak):
+  - 3 community AC Type-2 chargers: 22 + 20 + 18 = 60 kW additional
+  - Total Branch B: 154 kW → DT total 241 kW = 107% of thermal limit (225 kW)
+  - Branch B thermal loading: ~112% (220 A cable), voltage sag to ~0.928 pu
 
 Fallback: if pypowsybl is not available, returns analytically computed results
 using the same Baran-Wu DistFlow equations (identical for radial networks).
@@ -44,18 +45,19 @@ V_EMERGENCY_MAX_PU = 1.10
 CABLE_R_OHM_PER_KM = 0.25
 CABLE_X_OHM_PER_KM = 0.08
 
-# Branch definitions [id, phase, households, base_load_kw, length_m, ampacity_a]
+# Branch definitions [id, phase, households, base_load_kw (peak snapshot), length_m, ampacity_a]
+# base_load_kw represents the 18:00 evening-peak residential load (no EV)
 BRANCHES = [
-    {"id": "BR-A", "phase": "A", "households": 21, "base_load_kw": 98.0,  "length_m": 461.0, "ampacity_a": 300.0},
-    {"id": "BR-B", "phase": "B", "households": 34, "base_load_kw": 129.0, "length_m": 715.0, "ampacity_a": 300.0},
-    {"id": "BR-C", "phase": "C", "households": 10, "base_load_kw": 68.0,  "length_m": 185.0, "ampacity_a": 200.0},
+    {"id": "BR-A", "phase": "A", "households": 21, "base_load_kw": 58.0, "length_m": 280.0, "ampacity_a": 200.0},
+    {"id": "BR-B", "phase": "B", "households": 34, "base_load_kw": 94.0, "length_m": 250.0, "ampacity_a": 220.0},
+    {"id": "BR-C", "phase": "C", "households": 10, "base_load_kw": 29.0, "length_m": 150.0, "ampacity_a": 160.0},
 ]
 
-# EV surge: 3 fast chargers on Branch B
+# EV surge: 3 community AC Type-2 chargers on Branch B (realistic 22 kW class)
 EV_CHARGERS = [
-    {"id": "EVC-B01", "label": "EV Charger 1 (Chemin des Acacias)", "branch_id": "BR-B", "kw": 120.0},
-    {"id": "EVC-B02", "label": "EV Charger 2 (Rue de Bellevue)",    "branch_id": "BR-B", "kw": 110.0},
-    {"id": "EVC-B03", "label": "EV Charger 3 (Hameau du Gué)",      "branch_id": "BR-B", "kw": 120.0},
+    {"id": "EVC-B01", "label": "EV Charger 1 (Chemin des Acacias)", "branch_id": "BR-B", "kw": 22.0},
+    {"id": "EVC-B02", "label": "EV Charger 2 (Rue de Bellevue)",    "branch_id": "BR-B", "kw": 20.0},
+    {"id": "EVC-B03", "label": "EV Charger 3 (Hameau du Gué)",      "branch_id": "BR-B", "kw": 18.0},
 ]
 
 
@@ -109,14 +111,13 @@ def _distflow_solve(branches: list[dict], v_slack_pu: float = 1.0) -> list[dict]
         v_end_pu = math.sqrt(v_end_sq)
         v_end_v = v_end_pu * v_base_v
 
-        # Branch current (3-phase)
+        # Branch current (3-phase): S_VA = S_kVA × 1000; I = S_VA / (√3 × V_LL)
         s_kva = math.sqrt(p_kw ** 2 + q_kvar ** 2)
-        i_ka = (s_kva * 1000.0) / (math.sqrt(3) * v_base_v)
-        i_a = i_ka * 1000.0
+        i_a = (s_kva * 1000.0) / (math.sqrt(3) * v_base_v)
         loading_pct = (i_a / br["ampacity_a"]) * 100.0
 
-        # Losses
-        loss_kw = r * (i_ka * 1000.0) ** 2 / 1000.0
+        # Losses: P_loss = R × I² [W] → /1000 → kW
+        loss_kw = r * i_a ** 2 / 1000.0
 
         # Voltage status
         if v_end_pu < V_EMERGENCY_MIN_PU or v_end_pu > V_EMERGENCY_MAX_PU:

@@ -21,7 +21,7 @@ Network constants (Auzances LV, 95mm² XLPE cable):
 
 Diurnal load profile:
   - Weekday-style residential curve: low overnight, morning/evening peaks
-  - EV surge: slots 36-44 (18:00–22:00) add 350 kW to Branch B
+  - EV surge: slots 36-44 (18:00–22:00) add 60 kW to Branch B (3 × community AC Type-2 chargers)
 """
 from __future__ import annotations
 
@@ -46,18 +46,19 @@ TAN_PHI = math.tan(math.acos(POWER_FACTOR))  # ≈ 0.484
 # The PowerFlow page shows the worst-case peak (98/129/68 kW); the OE is built on
 # the scheduled day-ahead average with the diurnal curve scaling up to peak.
 _BRANCHES = [
-    {"id": "BR-A", "phase": "A", "hh": 21, "base_kw": 46.0,  "len_m": 461.0, "amp": 300.0},
-    {"id": "BR-B", "phase": "B", "hh": 34, "base_kw": 58.0,  "len_m": 715.0, "amp": 300.0},
-    {"id": "BR-C", "phase": "C", "hh": 10, "base_kw": 27.0,  "len_m": 185.0, "amp": 200.0},
+    {"id": "BR-A", "phase": "A", "hh": 21, "base_kw": 34.0,  "len_m": 280.0, "amp": 200.0},
+    {"id": "BR-B", "phase": "B", "hh": 34, "base_kw": 55.0,  "len_m": 250.0, "amp": 220.0},
+    {"id": "BR-C", "phase": "C", "hh": 10, "base_kw": 17.0,  "len_m": 150.0, "amp": 160.0},
 ]
-# Total average base = 131 kW = 58% of DT thermal limit
-# Peak multiplier (1.7) brings this to ~223 kW ≈ 99% of limit before EV surge
+# Total average base = 106 kW = 47% of DT thermal limit
+# Peak multiplier (1.7) brings this to ~180 kW ≈ 80% before EV surge — warning level
+# EV surge (+60 kW) pushes to ~240 kW = 107% of limit — thermal violation, OE needed
 
 CABLE_R = 0.25   # Ω/km
 CABLE_X = 0.08   # Ω/km
 
 # EV surge: 3 fast chargers on BR-B, slots 36-44 (18:00–22:00)
-EV_SURGE_KW = 350.0
+EV_SURGE_KW = 60.0   # 3 community AC Type-2 chargers: 22 + 20 + 18 kW
 EV_SURGE_BRANCH = "BR-B"
 EV_SURGE_SLOT_START = 36   # inclusive (0-indexed)
 EV_SURGE_SLOT_END = 44     # exclusive

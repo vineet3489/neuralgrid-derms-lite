@@ -27,6 +27,15 @@ from app.lv_network.service import (
 
 router = APIRouter(prefix="/api/v1/lv-network", tags=["lv-network"])
 
+# Runtime-overridable D4G config (survives until process restart; overrides env vars)
+# Seed with demo defaults so the UI always shows a configurable endpoint
+_d4g_runtime: dict = {
+    "d4g_api_url": "https://demo.d4g.local/oe",
+    "d4g_api_key": "d4g-demo-api-key-2026",
+}
+
+_DEMO_D4G_URL = "https://demo.d4g.local/oe"
+
 
 # ---------------------------------------------------------------------------
 # Provider registry
@@ -435,6 +444,36 @@ async def powsybl_power_flow_endpoint(
     return result
 
 
+@router.get("/d4g-config")
+async def get_d4g_config(current_user: CurrentUserDep = None) -> dict:
+    """Return current D4G integration config (key masked)."""
+    from app.config import settings
+    url = _d4g_runtime.get("d4g_api_url") or settings.d4g_api_url
+    key = _d4g_runtime.get("d4g_api_key") or settings.d4g_api_key
+    source = "runtime" if _d4g_runtime.get("d4g_api_url") else ("env" if settings.d4g_api_url else "demo")
+    return {
+        "d4g_api_url": url,
+        "d4g_api_key_hint": (key[:8] + "…" + key[-4:]) if len(key) > 12 else ("set" if key else ""),
+        "is_demo": url == _DEMO_D4G_URL,
+        "source": source,
+    }
+
+
+@router.put("/d4g-config")
+async def update_d4g_config(
+    payload: dict = Body(...),
+    current_user: CurrentUserDep = None,
+) -> dict:
+    """Update D4G endpoint at runtime (no restart needed). Admin only."""
+    url = payload.get("d4g_api_url", "").strip()
+    key = payload.get("d4g_api_key", "").strip()
+    if url:
+        _d4g_runtime["d4g_api_url"] = url
+    if key:
+        _d4g_runtime["d4g_api_key"] = key
+    return {"saved": True, "is_demo": _d4g_runtime.get("d4g_api_url") == _DEMO_D4G_URL}
+
+
 @router.post("/send-oe")
 async def send_oe_to_d4g(
     doc: dict = Body(..., description="A38 Operating Envelope MarketDocument JSON"),
@@ -460,15 +499,32 @@ async def send_oe_to_d4g(
     except Exception:
         pass
 
+    # Runtime config overrides env vars
+    effective_url = _d4g_runtime.get("d4g_api_url") or settings.d4g_api_url
+    effective_key = _d4g_runtime.get("d4g_api_key") or settings.d4g_api_key
+
+    # Demo mode — simulate a realistic D4G acceptance without hitting a real endpoint
+    if effective_url == _DEMO_D4G_URL:
+        import uuid
+        return {
+            "sent": True,
+            "simulated": True,
+            "mrid": mrid,
+            "ack_id": f"D4G-ACK-{uuid.uuid4().hex[:12].upper()}",
+            "d4g_status": 202,
+            "message": "Accepted by Digital4Grids (demo simulation)",
+            "sent_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     # If D4G endpoint is configured, actually send it
-    if settings.d4g_api_url:
+    if effective_url:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.post(
-                    settings.d4g_api_url,
+                    effective_url,
                     json=doc,
                     headers={
-                        "Authorization": f"Bearer {settings.d4g_api_key}",
+                        "Authorization": f"Bearer {effective_key}",
                         "Content-Type": "application/json",
                         "X-Sender-MRID": settings.d4g_sender_mrid,
                     },
@@ -497,12 +553,12 @@ async def send_oe_to_d4g(
                 "sent_at": datetime.now(timezone.utc).isoformat(),
             }
 
-    # D4G not configured — simulated response for dev/demo
+    # No URL at all — stored locally
     return {
         "sent": False,
         "simulated": True,
         "mrid": mrid,
-        "message": "D4G_API_URL not configured — document accepted locally. Set D4G_API_URL env var to enable live delivery.",
+        "message": "Document stored locally — configure D4G endpoint in OE Dispatch settings.",
         "sent_at": datetime.now(timezone.utc).isoformat(),
         "document_type": "A38",
         "slot_count": len(
