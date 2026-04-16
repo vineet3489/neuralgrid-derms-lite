@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { DISTRIBUTION_TRANSFORMERS } from '../data/auzanceNetwork'
 import {
   AlertTriangle, CheckCircle, Copy, ChevronDown, ChevronUp,
-  Loader2, Send, Cpu, Settings, RefreshCw, TrendingDown,
+  Loader2, Send, Cpu, RefreshCw, TrendingDown,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '../api/client'
@@ -74,35 +74,38 @@ function buildOEDocument(dtId: string, points: OEPoint[]) {
   const mRID = `OE-${dtId}-${Date.now()}`
   const today = new Date().toISOString().slice(0, 10)
   const startDT = new Date(`${today}T00:00:00Z`)
-  const endDT = new Date(`${today}T23:30:00Z`)
+  // End = start of next day (covers all 48 slots including slot 48 ending at 00:00 next day)
+  const endDT = new Date(startDT)
+  endDT.setUTCDate(endDT.getUTCDate() + 1)
   return {
     ReferenceEnergyCurveOperatingEnvelope_MarketDocument: {
       mRID,
       revisionNumber: '1',
       type: 'A38',
-      'process.processType': 'A01',
+      'process.processType': 'Z01',   // Z01 = Operating Envelope process
       'sender_MarketParticipant.mRID': { $text: '17X100A100A0001A', codingScheme: 'A01' },
-      'sender_MarketParticipant.marketRole.type': 'A04',
+      'sender_MarketParticipant.marketRole.type': 'A04',  // DSO
       'receiver_MarketParticipant.mRID': { $text: '17XTESTD4GRID02T', codingScheme: 'A01' },
-      'receiver_MarketParticipant.marketRole.type': 'A13',
+      'receiver_MarketParticipant.marketRole.type': 'A13',  // Aggregator
       createdDateTime: ts,
       'in_Domain.mRID': { $text: '17XAUZANCE001ZN', codingScheme: 'A01' },
       'out_Domain.mRID': { $text: '17XFRDSOEDFR001', codingScheme: 'A01' },
       Series: [
         {
           mRID: 'SERIES-001',
-          businessType: 'A96',
+          businessType: 'B28',  // B28 = Network constraint / operating envelope
           'registeredResource.mRID': { $text: `17X${dtId.replace(/-/g, '')}`, codingScheme: 'A01' },
+          'constraintZone.mRID': { $text: '17XAUZANCE001ZN', codingScheme: 'A01' },
           'measurement_Unit.name': 'MAW',
           Period: {
             timeInterval: { start: startDT.toISOString(), end: endDT.toISOString() },
             resolution: 'PT30M',
+            curveType: 'A01',  // A01 = sequential fixed blocks
             Point: points.map((p) => ({
               position: p.position,
               quantity_Minimum: parseFloat((p.quantity_Minimum / 1000).toFixed(6)),
               quantity_Maximum: parseFloat((p.quantity_Maximum / 1000).toFixed(6)),
               qualityCode: p.qualityCode,
-              ...(p.ev_surge ? { 'flowDirection.direction': 'A02' } : {}),
             })),
           },
         },
@@ -111,21 +114,16 @@ function buildOEDocument(dtId: string, points: OEPoint[]) {
   }
 }
 
-const DEMO_D4G_URL = 'https://demo.d4g.local/oe'
-
 export default function OperatingEnvelopePage() {
   const navigate = useNavigate()
-  const location = useLocation()
   const { user } = useAuthStore()
   const isAdmin = user?.is_superuser || false
 
-  if ((location.state as any)?.powerFlowConfirmed) {
-    sessionStorage.setItem('powerFlowConfirmed', '1')
-  }
-  const fromPowerFlow = !!(location.state as any)?.powerFlowConfirmed || sessionStorage.getItem('powerFlowConfirmed') === '1'
-
   const savedDtId = localStorage.getItem('lite_selected_dt') || DISTRIBUTION_TRANSFORMERS[0].id
   const [selectedDtId, setSelectedDtId] = useState(savedDtId)
+  const [pfConfirmed, setPfConfirmed] = useState(
+    () => !!localStorage.getItem(`powerFlowConfirmed_${savedDtId}`)
+  )
   const today = new Date().toISOString().slice(0, 10)
 
   // OE state
@@ -135,49 +133,20 @@ export default function OperatingEnvelopePage() {
   const [copiedOE, setCopiedOE] = useState(false)
   const [oeLoading, setOeLoading] = useState(false)
   const [oeError, setOeError] = useState<string | null>(null)
-  const [oeSolver, setOeSolver] = useState<'LinDistFlow' | 'Heuristic'>('Heuristic')
+  const [oeSolver, setOeSolver] = useState<'LinDistFlow' | 'NetworkModel'>('NetworkModel')
   const [sentBanner, setSentBanner] = useState<{ text: string; isDemo: boolean; ackId?: string } | null>(null)
   const [sending, setSending] = useState(false)
+  const [d4gIsDemo, setD4gIsDemo] = useState(true)
 
-  // D4G settings panel
-  const [showD4GSettings, setShowD4GSettings] = useState(false)
-  const [d4gUrl, setD4gUrl] = useState(DEMO_D4G_URL)
-  const [d4gKey, setD4gKey] = useState('d4g-demo-api-key-2026')
-  const [d4gSaving, setD4gSaving] = useState(false)
-  const [d4gSaveMsg, setD4gSaveMsg] = useState<string | null>(null)
-
-  // Load current D4G config from backend on mount
+  // Load D4G demo/live status from backend on mount
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/d4g-config`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` },
     })
       .then((r) => r.json())
-      .then((cfg) => {
-        if (cfg.d4g_api_url) setD4gUrl(cfg.d4g_api_url)
-      })
+      .then((cfg) => { if (cfg.is_demo !== undefined) setD4gIsDemo(cfg.is_demo) })
       .catch(() => {})
   }, [])
-
-  const handleSaveD4GConfig = async () => {
-    setD4gSaving(true)
-    setD4gSaveMsg(null)
-    try {
-      const r = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/d4g-config`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}`,
-        },
-        body: JSON.stringify({ d4g_api_url: d4gUrl, d4g_api_key: d4gKey }),
-      })
-      const result = await r.json()
-      setD4gSaveMsg(result.is_demo ? 'Demo mode active — OE send will simulate D4G acceptance' : 'Saved — live D4G endpoint configured')
-    } catch {
-      setD4gSaveMsg('Save failed — check backend connection')
-    } finally {
-      setD4gSaving(false)
-    }
-  }
 
   const handleGenerateAndSend = useCallback(async () => {
     setOeLoading(true)
@@ -185,7 +154,7 @@ export default function OperatingEnvelopePage() {
     setSentBanner(null)
 
     let pts: OEPoint[]
-    let solver: 'LinDistFlow' | 'Heuristic' = 'Heuristic'
+    let solver: 'LinDistFlow' | 'NetworkModel' = 'NetworkModel'
 
     if (selectedDtId === 'DT-AUZ-001') {
       try {
@@ -206,7 +175,7 @@ export default function OperatingEnvelopePage() {
         }))
         solver = 'LinDistFlow'
       } catch {
-        setOeError('Backend unavailable — using heuristic fallback')
+        setOeError('Backend unavailable — using network model estimate')
         pts = generateOEPoints(selectedDtId, new Date(`${today}T00:00:00`), 48)
       }
     } else {
@@ -266,7 +235,6 @@ export default function OperatingEnvelopePage() {
   const tightestHeadroom = oePoints.length > 0
     ? Math.min(...oePoints.map(p => p.quantity_Maximum)).toFixed(0)
     : '—'
-  const evSurgeSlots = oePoints.filter(p => p.ev_surge).length
 
   // Compliance preview: constrained slots with load vs limit
   const complianceSlots = oePoints.filter(p => p.constraint !== '—' && p.total_load_kw != null)
@@ -275,8 +243,6 @@ export default function OperatingEnvelopePage() {
     const curtail = (p.total_load_kw ?? 0) - limit
     return acc + Math.max(0, curtail)
   }, 0)
-
-  const isDemo = d4gUrl === DEMO_D4G_URL
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
@@ -288,83 +254,13 @@ export default function OperatingEnvelopePage() {
           </div>
           <p className="text-sm text-gray-500 mt-0.5">IEC 62746-4 · A38 ReferenceEnergyCurveOperatingEnvelope · 48-slot · PT30M</p>
         </div>
-        <button
-          onClick={() => setShowD4GSettings(!showD4GSettings)}
-          className={clsx(
-            'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors',
-            isDemo
-              ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
-              : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
-          )}
-        >
-          <Settings className="w-3.5 h-3.5" />
-          D4G: {isDemo ? 'Demo' : 'Live'}
-          {showD4GSettings ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        </button>
+        <span className={clsx(
+          'text-[10px] font-bold px-2 py-1 rounded border',
+          d4gIsDemo ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-green-100 text-green-700 border-green-200'
+        )}>
+          D4G: {d4gIsDemo ? 'DEMO' : 'LIVE'}
+        </span>
       </div>
-
-      {/* D4G Settings Panel */}
-      {showD4GSettings && (
-        <div className="card border-indigo-200 bg-indigo-50/40">
-          <div className="flex items-center gap-2 mb-3">
-            <Settings className="w-4 h-4 text-indigo-600" />
-            <h3 className="text-sm font-semibold text-gray-900">D4G Integration Settings</h3>
-            <span className={clsx(
-              'ml-auto text-[10px] font-bold px-2 py-0.5 rounded border',
-              isDemo ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-green-100 text-green-700 border-green-200'
-            )}>
-              {isDemo ? 'DEMO' : 'LIVE'}
-            </span>
-          </div>
-          <p className="text-xs text-gray-500 mb-3">
-            The A38 OE is POSTed to this endpoint with Bearer auth. Set the real D4G URL + key for production.
-            Demo mode simulates D4G acceptance without an external call.
-          </p>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Endpoint URL</label>
-              <input
-                type="text"
-                value={d4gUrl}
-                onChange={(e) => setD4gUrl(e.target.value)}
-                className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-1.5 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                placeholder="https://api.digital4grids.eu/oe/submit"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Bearer API Key</label>
-              <input
-                type="password"
-                value={d4gKey}
-                onChange={(e) => setD4gKey(e.target.value)}
-                className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-1.5 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                placeholder="your-d4g-api-key"
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSaveD4GConfig}
-              disabled={d4gSaving}
-              className="flex items-center gap-1.5 btn-primary text-xs py-1.5 px-4"
-            >
-              {d4gSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
-              Save & Activate
-            </button>
-            <button
-              onClick={() => { setD4gUrl(DEMO_D4G_URL); setD4gKey('d4g-demo-api-key-2026') }}
-              className="text-xs text-gray-500 hover:text-gray-700 underline"
-            >
-              Reset to demo
-            </button>
-            {d4gSaveMsg && (
-              <span className={clsx('text-xs', d4gSaveMsg.includes('failed') ? 'text-red-500' : 'text-green-600')}>
-                {d4gSaveMsg}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Controls */}
       <div className="card">
@@ -374,8 +270,10 @@ export default function OperatingEnvelopePage() {
             <select
               value={selectedDtId}
               onChange={(e) => {
-                setSelectedDtId(e.target.value)
-                localStorage.setItem('lite_selected_dt', e.target.value)
+                const newDtId = e.target.value
+                setSelectedDtId(newDtId)
+                localStorage.setItem('lite_selected_dt', newDtId)
+                setPfConfirmed(!!localStorage.getItem(`powerFlowConfirmed_${newDtId}`))
                 setOeDoc(null)
                 setOePoints([])
                 setOeError(null)
@@ -392,11 +290,14 @@ export default function OperatingEnvelopePage() {
           <div className="flex flex-col gap-2">
             <button
               onClick={handleGenerateAndSend}
-              disabled={oeLoading || sending || sentBanner !== null}
+              disabled={!pfConfirmed || oeLoading || sending || sentBanner !== null}
+              title={!pfConfirmed ? 'Run Power Flow on Look-Ahead first to confirm violations' : undefined}
               className={clsx(
                 'flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-medium transition-colors',
                 sentBanner !== null
                   ? 'bg-green-100 text-green-700 border border-green-200 cursor-default'
+                  : !pfConfirmed
+                  ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
                   : 'btn-primary'
               )}
             >
@@ -407,6 +308,14 @@ export default function OperatingEnvelopePage() {
                   : <><Send className="w-4 h-4" />Generate &amp; Send A38</>
               }
             </button>
+            {!pfConfirmed && (
+              <p className="text-[11px] text-gray-400 text-center">
+                <button onClick={() => navigate('/lookahead', { state: { dtId: selectedDtId } })} className="text-indigo-500 hover:underline">
+                  Run Power Flow
+                </button>
+                {' '}first to unlock
+              </p>
+            )}
             {sentBanner !== null && (
               <button
                 onClick={() => { setOeDoc(null); setOePoints([]); setOeError(null); setSentBanner(null) }}
@@ -420,22 +329,13 @@ export default function OperatingEnvelopePage() {
         {oeError && <p className="text-xs text-amber-500 mt-2">{oeError}</p>}
       </div>
 
-      {!fromPowerFlow && oePoints.length === 0 && (
-        <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-700">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-500" />
-          For physics-based OE, run Power Flow first on the Look-Ahead page to confirm violations.
-          <button onClick={() => navigate('/lookahead')} className="ml-auto text-indigo-600 hover:underline font-medium">
-            Go to Look-Ahead →
-          </button>
-        </div>
-      )}
 
       {/* Success banner */}
       {sentBanner && (
         <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
           <span>{sentBanner.text}</span>
-          {sentBanner.isDemo && (
+          {(sentBanner.isDemo || d4gIsDemo) && (
             <span className="ml-2 text-[10px] bg-amber-100 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded font-bold">DEMO</span>
           )}
         </div>
@@ -443,7 +343,7 @@ export default function OperatingEnvelopePage() {
 
       {/* KPI row */}
       {oePoints.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <div className="card text-center py-3">
             <div className="text-xs text-gray-500 mb-1">Constrained Slots</div>
             <div className={clsx('text-xl font-bold', constrainedSlots > 0 ? 'text-amber-500' : 'text-green-500')}>{constrainedSlots}</div>
@@ -452,12 +352,7 @@ export default function OperatingEnvelopePage() {
           <div className="card text-center py-3">
             <div className="text-xs text-gray-500 mb-1">Tightest Headroom</div>
             <div className={clsx('text-xl font-bold', parseFloat(tightestHeadroom) < 100 ? 'text-red-500' : 'text-gray-800')}>{tightestHeadroom} kW</div>
-            <div className="text-[10px] text-gray-500 mt-0.5">Export max</div>
-          </div>
-          <div className="card text-center py-3">
-            <div className="text-xs text-gray-500 mb-1">EV Surge Slots</div>
-            <div className={clsx('text-xl font-bold', evSurgeSlots > 0 ? 'text-blue-500' : 'text-gray-500')}>{evSurgeSlots}</div>
-            <div className="text-[10px] text-gray-500 mt-0.5">slots flagged EV</div>
+            <div className="text-[10px] text-gray-500 mt-0.5">Max import headroom (kW)</div>
           </div>
         </div>
       )}
@@ -492,10 +387,7 @@ export default function OperatingEnvelopePage() {
                   const curtail = Math.max(0, (p.total_load_kw ?? 0) - limit)
                   return (
                     <tr key={p.position} className="border-t border-gray-100 hover:bg-gray-50">
-                      <td className="px-2 py-1.5 font-mono text-gray-700">
-                        {p.time}
-                        {p.ev_surge && <span className="ml-1 text-[9px] text-amber-500 font-bold">EV</span>}
-                      </td>
+                      <td className="px-2 py-1.5 font-mono text-gray-700">{p.time}</td>
                       <td className="px-2 py-1.5 text-right font-mono text-gray-700">{p.total_load_kw?.toFixed(0)}</td>
                       <td className="px-2 py-1.5 text-right font-mono text-blue-600">{limit.toFixed(0)}</td>
                       <td className="px-2 py-1.5 text-right font-mono">
@@ -533,7 +425,7 @@ export default function OperatingEnvelopePage() {
                   : 'bg-gray-100 text-gray-500 border-gray-200'
               )}>
                 <Cpu className="w-2.5 h-2.5" />
-                {oeSolver}
+                {oeSolver === 'LinDistFlow' ? 'LinDistFlow' : 'Network Model'}
               </span>
             </div>
             <div className="flex gap-2">
@@ -581,10 +473,7 @@ export default function OperatingEnvelopePage() {
                     p.constraint !== '—' && 'bg-red-50'
                   )}>
                     <td className="px-2 py-1 text-gray-500 font-mono">{p.position}</td>
-                    <td className="px-2 py-1 text-gray-700 font-mono">
-                      {p.time}
-                      {p.ev_surge && <span className="ml-1 text-[9px] text-amber-500 font-bold">EV</span>}
-                    </td>
+                    <td className="px-2 py-1 text-gray-700 font-mono">{p.time}</td>
                     <td className="px-2 py-1 text-right">
                       <span className="text-blue-500 font-mono">{Math.abs(p.quantity_Minimum).toFixed(1)}</span>
                     </td>
@@ -606,8 +495,8 @@ export default function OperatingEnvelopePage() {
                       <td className="px-2 py-1 text-right">
                         <span className={clsx(
                           'font-mono text-[11px]',
-                          (p.min_v_end_pu ?? 1) < 0.94 ? 'text-red-400' :
-                          (p.min_v_end_pu ?? 1) < 0.97 ? 'text-amber-400' : 'text-gray-500'
+                          (p.min_v_end_pu ?? 1) < 0.90 ? 'text-red-400' :
+                          (p.min_v_end_pu ?? 1) < 0.95 ? 'text-amber-400' : 'text-gray-500'
                         )}>
                           {p.min_v_end_pu?.toFixed(3)}
                         </span>

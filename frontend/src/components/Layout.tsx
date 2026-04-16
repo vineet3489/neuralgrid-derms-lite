@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useGridStore } from '../stores/gridStore'
 import {
   Map, Activity, Radio, LogOut, Zap, Bell, MessageSquare,
-  Layers, Users, Cpu, Shield, Database,
+  Layers, Users, Cpu, Shield, Database, Settings,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -22,6 +22,7 @@ const ADMIN_NAV = [
   { path: '/admin/counterparties', label: 'Counterparties', icon: Users },
   { path: '/admin/assets',         label: 'Assets',         icon: Cpu },
   { path: '/admin/schema',         label: 'DB Schema',      icon: Database },
+  { path: '/admin/settings',       label: 'Settings',       icon: Settings },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {

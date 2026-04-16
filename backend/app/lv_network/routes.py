@@ -36,6 +36,13 @@ _d4g_runtime: dict = {
 
 _DEMO_D4G_URL = "https://demo.d4g.local/oe"
 
+# IEC message endpoint config (inbound/outbound for each document type)
+_iec_endpoints: dict = {
+    "A38": {"label": "Operating Envelope", "direction": "outbound", "url": "", "key": ""},
+    "A44": {"label": "Performance / Settlement", "direction": "inbound", "url": "", "key": ""},
+    "A28": {"label": "Activation Instruction", "direction": "inbound", "url": "", "key": ""},
+}
+
 
 # ---------------------------------------------------------------------------
 # Provider registry
@@ -472,6 +479,39 @@ async def update_d4g_config(
     if key:
         _d4g_runtime["d4g_api_key"] = key
     return {"saved": True, "is_demo": _d4g_runtime.get("d4g_api_url") == _DEMO_D4G_URL}
+
+
+@router.get("/iec-endpoints")
+async def get_iec_endpoints(current_user: CurrentUserDep = None) -> dict:
+    """Return current IEC message endpoint configuration (keys masked)."""
+    result = {}
+    for doc_type, cfg in _iec_endpoints.items():
+        key = cfg.get("key", "")
+        result[doc_type] = {
+            "label": cfg["label"],
+            "direction": cfg["direction"],
+            "url": cfg.get("url", ""),
+            "key_hint": (key[:4] + "…") if len(key) > 4 else ("set" if key else ""),
+        }
+    return result
+
+
+@router.put("/iec-endpoints")
+async def update_iec_endpoints(
+    payload: dict = Body(...),
+    current_user: CurrentUserDep = None,
+) -> dict:
+    """Update IEC message endpoints at runtime. Admin only.
+
+    Payload: { "A38": { "url": "...", "key": "..." }, "A44": { ... } }
+    """
+    for doc_type, cfg in payload.items():
+        if doc_type in _iec_endpoints:
+            if "url" in cfg:
+                _iec_endpoints[doc_type]["url"] = cfg["url"].strip()
+            if "key" in cfg:
+                _iec_endpoints[doc_type]["key"] = cfg["key"].strip()
+    return {"saved": True, "updated": list(payload.keys())}
 
 
 @router.post("/send-oe")

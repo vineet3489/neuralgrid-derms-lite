@@ -14,7 +14,7 @@ import {
   LV_CONNECTION_POINTS,
 } from '../data/auzanceNetwork'
 import type { DistributionTransformer, DERAsset } from '../data/auzanceNetwork'
-import { Layers, X, ChevronRight } from 'lucide-react'
+import { X, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -63,7 +63,6 @@ export default function NetworkMapPage() {
   const dtMarkersRef    = useRef<Record<string, L.CircleMarker>>({})
 
   const [selectedDT, setSelectedDT] = useState<DistributionTransformer | null>(null)
-  const [activeLayers, setActiveLayers] = useState<Set<string>>(new Set(ALL_LAYERS))
 
   const distressedDTs = DISTRIBUTION_TRANSFORMERS.filter(d => d.status !== 'NORMAL').length
   const dtDers = selectedDT ? DER_ASSETS.filter(a => a.dt_id === selectedDT.id) : []
@@ -173,28 +172,6 @@ export default function NetworkMapPage() {
     }, 1300)
   }, [selectedDT])
 
-  // ── Reactive layer show/hide (the fix) ───────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    Object.entries(groupsRef.current).forEach(([name, group]) => {
-      if (activeLayers.has(name)) {
-        if (!map.hasLayer(group)) group.addTo(map)
-      } else {
-        if (map.hasLayer(group)) map.removeLayer(group)
-      }
-    })
-  }, [activeLayers])
-
-  function toggleLayer(name: string) {
-    setActiveLayers(prev => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }
-
   return (
     <div className="flex flex-col bg-gray-50" style={{ height: 'calc(100vh - 57px)' }}>
 
@@ -211,26 +188,6 @@ export default function NetworkMapPage() {
           </div>
         )}
 
-        {/* Layer toggles */}
-        <div className="absolute top-2 right-2 z-[1000] bg-white/95 border border-gray-200 rounded-lg shadow p-2.5 min-w-[170px]">
-          <div className="flex items-center gap-1.5 mb-2 text-gray-600">
-            <Layers className="w-3.5 h-3.5" />
-            <span className="text-xs font-semibold">Layers</span>
-          </div>
-          <div className="space-y-1.5">
-            {ALL_LAYERS.map(name => (
-              <label key={name} className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={activeLayers.has(name)}
-                  onChange={() => toggleLayer(name)}
-                  className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
-                />
-                <span className="text-xs text-gray-700">{name}</span>
-              </label>
-            ))}
-          </div>
-        </div>
       </div>
 
       {/* ── DETAILS SECTION (scrollable below map) ─────────────────────── */}
@@ -353,58 +310,33 @@ function NetworkSummaryPanel({ onSelectDT }: { onSelectDT: (dt: DistributionTran
           </table>
         </div>
 
-        {/* MV Circuits + DER Fleet */}
-        <div className="space-y-4">
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">MV Circuits (20 kV)</h4>
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-gray-500 border-b border-gray-200">
-                  <th className="text-left pb-1.5 font-medium">Circuit</th>
-                  <th className="text-right pb-1.5 font-medium">Length</th>
-                  <th className="text-right pb-1.5 font-medium">Loading</th>
+        {/* MV Circuits */}
+        <div>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">MV Circuits (20 kV)</h4>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-gray-500 border-b border-gray-200">
+                <th className="text-left pb-1.5 font-medium">Circuit</th>
+                <th className="text-right pb-1.5 font-medium">Length</th>
+                <th className="text-right pb-1.5 font-medium">Loading</th>
+              </tr>
+            </thead>
+            <tbody>
+              {HTA_CIRCUITS.map(c => (
+                <tr key={c.id} className="border-b border-gray-200">
+                  <td className="py-1.5 text-gray-800">{c.name}</td>
+                  <td className="py-1.5 text-right text-gray-500">{c.length_km} km</td>
+                  <td className="py-1.5 text-right">
+                    <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium',
+                      c.loading_pct >= 80 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                    )}>
+                      {c.loading_pct}%
+                    </span>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {HTA_CIRCUITS.map(c => (
-                  <tr key={c.id} className="border-b border-gray-200">
-                    <td className="py-1.5 text-gray-800">{c.name}</td>
-                    <td className="py-1.5 text-right text-gray-500">{c.length_km} km</td>
-                    <td className="py-1.5 text-right">
-                      <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium',
-                        c.loading_pct >= 80 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                      )}>
-                        {c.loading_pct}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">DER Fleet</h4>
-            <div className="space-y-1">
-              {Object.entries(DER_TYPE_LABELS).map(([type, label]) => {
-                const assets = DER_ASSETS.filter(a => a.type === type)
-                if (!assets.length) return null
-                const cap = assets.reduce((s, a) => s + a.capacity_kw, 0)
-                const gen = assets.filter(a => a.current_kw < 0).reduce((s, a) => s + Math.abs(a.current_kw), 0)
-                const color = DER_TYPE_COLORS[type]
-                return (
-                  <div key={type} className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-                    <span className="text-xs text-gray-500 w-24">{label}</span>
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, (gen / cap) * 100)}%`, background: color }} />
-                    </div>
-                    <span className="text-xs text-gray-500 font-mono w-20 text-right">{gen.toFixed(0)} / {cap} kW</span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

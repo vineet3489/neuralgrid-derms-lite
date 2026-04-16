@@ -5,9 +5,9 @@ import {
   ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts'
 import {
-  DEMO_DT, LV_BRANCHES_DEMO, EV_CHARGERS_DEMO,
+  DEMO_DT, LV_BRANCHES_DEMO,
 } from '../data/auzanceNetwork'
-import { AlertTriangle, CheckCircle, ChevronRight, Loader2, Zap, Car } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ChevronRight, Loader2, Zap } from 'lucide-react'
 import clsx from 'clsx'
 
 // ─── LinDistFlow constants ────────────────────────────────────────────────────
@@ -92,7 +92,6 @@ function ForecastTooltip({ active, payload }: any) {
           {d?.dtPct}%
         </span>
       </div>
-      {d?.evSurge && <div className="text-blue-400 mt-1">EV surge window</div>}
       {d?.violation && <div className="text-red-400 mt-1 font-semibold">Thermal violation</div>}
       <div className="text-gray-400 mt-1 text-[10px]">Click bar to snap slider →</div>
     </div>
@@ -273,6 +272,8 @@ export default function ForecastPage() {
     }
   }, [])
 
+  const confirmedDtId = navState?.dtId || DEMO_DT.id
+
   const runPowerFlow = useCallback(async () => {
     setRunning(true)
     setResult(null)
@@ -282,8 +283,9 @@ export default function ForecastPage() {
       const res = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` } })
       if (res.ok) {
         const data = await res.json()
-        setResult({ ...data, engine: 'Powsybl' })
+        setResult({ ...data, engine: 'DistFlow' })
         setRanSlot(slotIndex)
+        localStorage.setItem(`powerFlowConfirmed_${confirmedDtId}`, '1')
         setRunning(false)
         return
       }
@@ -292,8 +294,9 @@ export default function ForecastPage() {
     await new Promise(r => setTimeout(r, 1200))
     setResult(solveFrontend(slotIndex))
     setRanSlot(slotIndex)
+    localStorage.setItem(`powerFlowConfirmed_${confirmedDtId}`, '1')
     setRunning(false)
-  }, [slotIndex, evSurge])
+  }, [slotIndex, evSurge, confirmedDtId])
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
@@ -316,11 +319,12 @@ export default function ForecastPage() {
             DT-AUZ-001 · 48 × PT30M slots · {DT_LIMIT} kW limit · Click a bar to inspect that slot
           </p>
         </div>
-        <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
-          <Zap className="w-3.5 h-3.5 text-indigo-500" />
-          <span className="text-xs text-indigo-600 font-medium">{result ? result.engine : 'Powsybl'}</span>
-          {!result && <span className="text-xs text-gray-500">OpenLoadFlow</span>}
-        </div>
+        {result && (
+          <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
+            <Zap className="w-3.5 h-3.5 text-indigo-500" />
+            <span className="text-xs text-indigo-600 font-medium">{result.engine}</span>
+          </div>
+        )}
       </div>
 
       {/* Violation banner */}
@@ -382,10 +386,9 @@ export default function ForecastPage() {
                     fill={
                       d.slot === slotIndex ? '#a5b4fc'
                       : d.violation ? '#ef4444'
-                      : d.evSurge ? '#f59e0b'
                       : '#6366f1'
                     }
-                    opacity={d.slot === slotIndex ? 1 : d.evSurge ? 0.85 : 0.7}
+                    opacity={d.slot === slotIndex ? 1 : 0.7}
                   />
                 ))}
               </Bar>
@@ -394,7 +397,6 @@ export default function ForecastPage() {
         </div>
         <div className="flex items-center gap-5 mt-2 text-[10px] text-gray-500">
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500/70 rounded-sm inline-block" />Normal</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-amber-500/85 rounded-sm inline-block" />EV surge</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500 rounded-sm inline-block" />Thermal violation</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-300 rounded-sm inline-block" />Selected slot</span>
         </div>
@@ -411,14 +413,7 @@ export default function ForecastPage() {
         <div className="flex-1">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs text-gray-500">Time of day</span>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-gray-900 font-mono">{slotToTime(slotIndex)}</span>
-              {evSurge && (
-                <span className="flex items-center gap-1 text-[10px] bg-blue-100 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded">
-                  <Car className="w-2.5 h-2.5" /> EV surge active
-                </span>
-              )}
-            </div>
+            <span className="text-sm font-semibold text-gray-900 font-mono">{slotToTime(slotIndex)}</span>
           </div>
           <input
             type="range"
@@ -542,9 +537,6 @@ export default function ForecastPage() {
                       )}>
                         {br.total_load_kw}
                       </span>
-                      {br.ev_load_kw > 0 && (
-                        <span className="text-blue-400 text-[10px] ml-1">(+{br.ev_load_kw} EV)</span>
-                      )}
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
                       <span className={clsx(
@@ -568,39 +560,6 @@ export default function ForecastPage() {
             </table>
           </div>
 
-          {/* EV charger detail */}
-          {result.ev_surge && (
-            <div className="card border-blue-200 bg-blue-50">
-              <h3 className="text-xs font-semibold text-blue-600 mb-3">EV Chargers active on Branch B</h3>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr>
-                    <th className="text-left text-gray-500 font-medium pb-2">ID</th>
-                    <th className="text-left text-gray-500 font-medium pb-2">Location</th>
-                    <th className="text-right text-gray-500 font-medium pb-2">kW</th>
-                    <th className="text-left text-gray-500 font-medium pb-2">Phase</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {EV_CHARGERS_DEMO.filter(ev => ev.branch_id === 'BR-B').map((ev) => (
-                    <tr key={ev.id} className="border-t border-gray-200">
-                      <td className="py-1.5 font-mono text-gray-700">{ev.id}</td>
-                      <td className="py-1.5 text-gray-500">{ev.label}</td>
-                      <td className="py-1.5 text-right font-mono text-blue-500 font-semibold">{ev.kw}</td>
-                      <td className="py-1.5 text-gray-400 pl-4">Phase B</td>
-                    </tr>
-                  ))}
-                  <tr className="border-t border-gray-300">
-                    <td colSpan={2} className="py-1.5 text-gray-500 font-medium">Total EV load</td>
-                    <td className="py-1.5 text-right font-mono text-blue-500 font-bold">
-                      {EV_CHARGERS_DEMO.filter(ev => ev.branch_id === 'BR-B').reduce((s, ev) => s + ev.kw, 0)} kW
-                    </td>
-                    <td />
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
 
           {/* Available Flex Program panel */}
           {result.violations.length > 0 && (

@@ -17,6 +17,7 @@ import ProgramsAdminPage from './pages/ProgramsAdminPage'
 import CounterpartiesAdminPage from './pages/CounterpartiesAdminPage'
 import AssetsAdminPage from './pages/AssetsAdminPage'
 import DBSchemaPage from './pages/DBSchemaPage'
+import SettingsPage from './pages/SettingsPage'
 
 class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }
@@ -95,6 +96,7 @@ export default function App() {
         <Route path="/admin/counterparties" element={<ProtectedRoute><CounterpartiesAdminPage /></ProtectedRoute>} />
         <Route path="/admin/assets" element={<ProtectedRoute><AssetsAdminPage /></ProtectedRoute>} />
         <Route path="/admin/schema" element={<ProtectedRoute><DBSchemaPage /></ProtectedRoute>} />
+        <Route path="/admin/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/network" replace />} />
       </Routes>
