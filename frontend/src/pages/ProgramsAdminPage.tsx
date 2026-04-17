@@ -1,7 +1,20 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, X, Loader2, Info } from 'lucide-react'
+import { Plus, X, Loader2, Info, CheckCircle, Ban } from 'lucide-react'
 import clsx from 'clsx'
 import { apiClient } from '../api/client'
+
+interface Enrollment {
+  id: string
+  program_id: string
+  program_name: string
+  company: string
+  contact_name: string
+  contact_email: string
+  flex_capacity_kw: number
+  assets: string[]
+  registered_at: string
+  status: 'pending' | 'approved' | 'suspended'
+}
 
 interface Program {
   id: string
@@ -93,12 +106,30 @@ const EMPTY_FORM: FormState = {
 }
 
 export default function ProgramsAdminPage() {
+  const [activeTab, setActiveTab] = useState<'programs' | 'enrollments'>('programs')
   const [programs, setPrograms] = useState<Program[]>([])
   const [loading, setLoading] = useState(true)
   const [usingDemo, setUsingDemo] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
+
+  // Load enrollments from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('ng_enrollments')
+    if (stored) {
+      try { setEnrollments(JSON.parse(stored)) } catch { /* ignore */ }
+    }
+  }, [activeTab])
+
+  const updateEnrollmentStatus = (id: string, status: Enrollment['status']) => {
+    setEnrollments(prev => {
+      const updated = prev.map(e => e.id === id ? { ...e, status } : e)
+      localStorage.setItem('ng_enrollments', JSON.stringify(updated))
+      return updated
+    })
+  }
 
   useEffect(() => {
     apiClient.get('/programs')
@@ -164,27 +195,128 @@ export default function ProgramsAdminPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Flex Programs</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Manage flexibility programs and operating envelopes</p>
+          <p className="text-sm text-gray-500 mt-0.5">Manage flexibility programs and aggregator enrollments</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="btn-primary flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          New Program
-        </button>
+        {activeTab === 'programs' && (
+          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            New Program
+          </button>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+        {(['programs', 'enrollments'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={clsx(
+              'px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize',
+              activeTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            {tab}
+            {tab === 'enrollments' && enrollments.length > 0 && (
+              <span className="ml-1.5 text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-bold">{enrollments.length}</span>
+            )}
+          </button>
+        ))}
       </div>
 
       {/* Demo info banner */}
-      {usingDemo && programs.length > 0 && (
+      {activeTab === 'programs' && usingDemo && programs.length > 0 && (
         <div className="flex items-center gap-2.5 bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-2.5 text-xs text-indigo-600">
           <Info className="w-3.5 h-3.5 flex-shrink-0" />
           Demo: 1 program pre-loaded — EDF Réseau Peak Flex
         </div>
       )}
 
-      {/* Table */}
-      <div className="card p-0 overflow-hidden">
+      {/* Enrollments tab */}
+      {activeTab === 'enrollments' && (
+        <div className="card p-0 overflow-hidden">
+          {enrollments.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+              <p className="text-sm">No enrollments yet</p>
+              <p className="text-xs mt-1">Aggregators register via the Programs page</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Company</th>
+                    <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Contact</th>
+                    <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Program</th>
+                    <th className="text-right text-xs text-gray-500 font-medium px-4 py-3">Flex (kW)</th>
+                    <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Assets</th>
+                    <th className="text-left text-xs text-gray-500 font-medium px-4 py-3">Registered</th>
+                    <th className="text-center text-xs text-gray-500 font-medium px-4 py-3">Status</th>
+                    <th className="text-center text-xs text-gray-500 font-medium px-4 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {enrollments.map(e => (
+                    <tr key={e.id} className="border-t border-gray-100 hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <div className="text-gray-800 font-medium text-sm">{e.company}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-gray-700 text-xs">{e.contact_name}</div>
+                        <div className="text-gray-400 text-[10px]">{e.contact_email}</div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{e.program_name}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-700">{e.flex_capacity_kw}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {e.assets.map(a => (
+                            <span key={a} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{a}</span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-400">{new Date(e.registered_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={clsx('px-2 py-0.5 rounded text-[10px] font-semibold border',
+                          e.status === 'approved' ? 'bg-green-100 text-green-700 border-green-200' :
+                          e.status === 'suspended' ? 'bg-red-100 text-red-600 border-red-200' :
+                          'bg-amber-100 text-amber-700 border-amber-200'
+                        )}>
+                          {e.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {e.status !== 'approved' && (
+                            <button
+                              onClick={() => updateEnrollmentStatus(e.id, 'approved')}
+                              title="Approve"
+                              className="p-1 rounded hover:bg-green-50 text-green-600 transition-colors"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {e.status !== 'suspended' && (
+                            <button
+                              onClick={() => updateEnrollmentStatus(e.id, 'suspended')}
+                              title="Suspend"
+                              className="p-1 rounded hover:bg-red-50 text-red-500 transition-colors"
+                            >
+                              <Ban className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Programs table */}
+      {activeTab === 'programs' && (<div className="card p-0 overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-16 text-gray-500 gap-2">
             <Loader2 className="w-5 h-5 animate-spin" />
@@ -235,7 +367,7 @@ export default function ProgramsAdminPage() {
             </table>
           </div>
         )}
-      </div>
+      </div>)}
 
       {/* Modal */}
       {showModal && (

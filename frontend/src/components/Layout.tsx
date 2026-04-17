@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useGridStore } from '../stores/gridStore'
 import {
   Map, Activity, Radio, LogOut, Zap, Bell, MessageSquare,
-  Layers, Users, Cpu, Shield, Database, Settings,
+  Layers, Users, Cpu, Shield, Database, Settings, TrendingUp,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -14,6 +14,8 @@ const OPERATOR_NAV = [
   { path: '/lookahead',  label: 'Look-Ahead & Flow',  icon: Activity },
   { path: '/oe',         label: 'OE Dispatch',        icon: Radio },
   { path: '/messages',   label: 'IEC Messages',       icon: MessageSquare },
+  { path: '/programs',   label: 'Programs',           icon: Layers },
+  { path: '/settlement', label: 'Settlement',         icon: TrendingUp },
 ]
 
 // ADMIN nav items (only for admin/superuser)

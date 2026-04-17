@@ -18,6 +18,8 @@ import CounterpartiesAdminPage from './pages/CounterpartiesAdminPage'
 import AssetsAdminPage from './pages/AssetsAdminPage'
 import DBSchemaPage from './pages/DBSchemaPage'
 import SettingsPage from './pages/SettingsPage'
+import ProgramsLitePage from './pages/ProgramsLitePage'
+import PerformancePage from './pages/PerformancePage'
 
 class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null }
@@ -83,7 +85,8 @@ export default function App() {
         <Route path="/oe" element={<ProtectedRoute><OperatingEnvelopePage /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><D4GMessagesPage /></ProtectedRoute>} />
         <Route path="/lookahead" element={<ProtectedRoute><ForecastPage /></ProtectedRoute>} />
-        <Route path="/settlement" element={<ProtectedRoute><BaselineFlexPage /></ProtectedRoute>} />
+        <Route path="/settlement" element={<ProtectedRoute><PerformancePage /></ProtectedRoute>} />
+        <Route path="/programs" element={<ProtectedRoute><ProgramsLitePage /></ProtectedRoute>} />
 
         {/* Legacy paths (kept for backwards compatibility) */}
         <Route path="/envelope" element={<ProtectedRoute><OperatingEnvelopePage /></ProtectedRoute>} />

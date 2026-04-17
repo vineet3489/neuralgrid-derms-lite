@@ -176,7 +176,7 @@ export default function NetworkMapPage() {
     <div className="flex flex-col bg-gray-50" style={{ height: 'calc(100vh - 57px)' }}>
 
       {/* ── MAP SECTION (fixed height) ─────────────────────────────────── */}
-      <div className="relative flex-shrink-0" style={{ height: '420px' }}>
+      <div className="relative flex-shrink-0" style={{ height: '300px' }}>
         <div ref={mapContainerRef} className="absolute inset-0" />
 
         {/* Violation alert */}
@@ -252,91 +252,110 @@ function NetworkSummaryPanel({ onSelectDT }: { onSelectDT: (dt: DistributionTran
         </div>
       )}
 
-      {/* Top stats row */}
-      <div className="grid grid-cols-4 gap-3 mb-4">
+      {/* Stats strip */}
+      <div className="grid grid-cols-4 gap-2 mb-4">
         {[
-          { label: 'HV Substation',      value: HV_SUBSTATION.name,           sub: `${HV_SUBSTATION.voltage_kv} kV · ${HV_SUBSTATION.capacity_mva} MVA` },
-          { label: 'Transformers',        value: DISTRIBUTION_TRANSFORMERS.length,  sub: `${DISTRIBUTION_TRANSFORMERS.filter(d => d.status !== 'NORMAL').length} in violation` },
-          { label: 'DER Assets',          value: DER_ASSETS.length,            sub: `${DER_ASSETS.filter(a => a.current_kw < 0).length} generating` },
-          { label: 'LV Feeders',          value: LV_FEEDERS.length,            sub: `${LV_FEEDERS.filter(f => f.loading_pct > 100).length} overloaded` },
+          { label: 'HV Substation', value: HV_SUBSTATION.name, sub: `${HV_SUBSTATION.voltage_kv} kV · ${HV_SUBSTATION.capacity_mva} MVA` },
+          { label: 'Transformers',  value: DISTRIBUTION_TRANSFORMERS.length, sub: `${DISTRIBUTION_TRANSFORMERS.filter(d => d.status !== 'NORMAL').length} in violation`, alert: DISTRIBUTION_TRANSFORMERS.some(d => d.status !== 'NORMAL') },
+          { label: 'DER Assets',    value: DER_ASSETS.length, sub: `${DER_ASSETS.filter(a => a.current_kw < 0).length} generating` },
+          { label: 'LV Feeders',    value: LV_FEEDERS.length, sub: `${LV_FEEDERS.filter(f => f.loading_pct > 100).length} overloaded` },
         ].map(stat => (
-          <div key={stat.label} className="bg-white border border-gray-200 rounded-lg p-3">
-            <div className="text-xs text-gray-500 mb-0.5">{stat.label}</div>
-            <div className="text-lg font-bold text-gray-900">{stat.value}</div>
-            <div className="text-xs text-gray-500 mt-0.5">{stat.sub}</div>
+          <div key={stat.label} className={clsx('bg-white border rounded-lg px-3 py-2', (stat as any).alert ? 'border-red-200 bg-red-50' : 'border-gray-200')}>
+            <div className="text-[10px] text-gray-500">{stat.label}</div>
+            <div className="text-base font-bold text-gray-900 leading-tight">{stat.value}</div>
+            <div className={clsx('text-[10px] mt-0.5', (stat as any).alert ? 'text-red-500 font-medium' : 'text-gray-400')}>{stat.sub}</div>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* Main content — DT table (wider) + MV circuits (narrower) */}
+      <div className="grid gap-4" style={{ gridTemplateColumns: '3fr 2fr' }}>
         {/* Distribution Transformers table */}
         <div>
           <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
             Distribution Transformers — click to inspect
           </h4>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-gray-500 border-b border-gray-200">
-                <th className="text-left pb-1.5 font-medium">Name</th>
-                <th className="text-right pb-1.5 font-medium">Load%</th>
-                <th className="text-right pb-1.5 font-medium">Voltage</th>
-                <th className="text-right pb-1.5 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DISTRIBUTION_TRANSFORMERS.map(dt => (
-                <tr
-                  key={dt.id}
-                  onClick={() => onSelectDT(dt)}
-                  className={clsx(
-                    'border-b border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors',
-                    dt.status !== 'NORMAL' && 'bg-red-50'
-                  )}
-                >
-                  <td className={clsx(
-                    'py-1.5 text-gray-800',
-                    dt.status !== 'NORMAL' && 'border-l-2 border-red-500 pl-2'
-                  )}>{dt.name}</td>
-                  <td className="py-1.5 text-right font-mono text-gray-700">{dt.loading_pct}%</td>
-                  <td className="py-1.5 text-right font-mono text-gray-700">{dt.voltage_v} V</td>
-                  <td className="py-1.5 text-right">
-                    <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', statusBadge(dt.status))}>
-                      {dt.status}
-                    </span>
-                  </td>
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr className="text-gray-500">
+                  <th className="text-left px-3 py-2 font-medium">Name</th>
+                  <th className="text-right px-3 py-2 font-medium">Load %</th>
+                  <th className="text-right px-3 py-2 font-medium">Voltage</th>
+                  <th className="text-right px-3 py-2 font-medium">Capacity</th>
+                  <th className="text-center px-3 py-2 font-medium">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {DISTRIBUTION_TRANSFORMERS.map(dt => (
+                  <tr
+                    key={dt.id}
+                    onClick={() => onSelectDT(dt)}
+                    className={clsx(
+                      'border-t border-gray-100 hover:bg-indigo-50 cursor-pointer transition-colors',
+                      dt.status === 'CRITICAL' && 'bg-red-50',
+                      dt.status === 'WARNING' && 'bg-amber-50',
+                    )}
+                  >
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        {dt.status !== 'NORMAL' && (
+                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dt.status === 'CRITICAL' ? '#ef4444' : '#f59e0b' }} />
+                        )}
+                        <div>
+                          <div className="text-gray-800 font-medium">{dt.name}</div>
+                          <div className="text-[10px] text-gray-400 font-mono">{dt.id}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={clsx('font-mono font-semibold',
+                        dt.loading_pct > 100 ? 'text-red-500' : dt.loading_pct > 80 ? 'text-amber-500' : 'text-gray-700'
+                      )}>{dt.loading_pct}%</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-600">{dt.voltage_v} V</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-400">{dt.capacity_kva} kVA</td>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', statusBadge(dt.status))}>
+                        {dt.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* MV Circuits */}
         <div>
           <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">MV Circuits (20 kV)</h4>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-gray-500 border-b border-gray-200">
-                <th className="text-left pb-1.5 font-medium">Circuit</th>
-                <th className="text-right pb-1.5 font-medium">Length</th>
-                <th className="text-right pb-1.5 font-medium">Loading</th>
-              </tr>
-            </thead>
-            <tbody>
-              {HTA_CIRCUITS.map(c => (
-                <tr key={c.id} className="border-b border-gray-200">
-                  <td className="py-1.5 text-gray-800">{c.name}</td>
-                  <td className="py-1.5 text-right text-gray-500">{c.length_km} km</td>
-                  <td className="py-1.5 text-right">
-                    <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium',
-                      c.loading_pct >= 80 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                    )}>
-                      {c.loading_pct}%
-                    </span>
-                  </td>
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr className="text-gray-500">
+                  <th className="text-left px-3 py-2 font-medium">Circuit</th>
+                  <th className="text-right px-3 py-2 font-medium">Length</th>
+                  <th className="text-right px-3 py-2 font-medium">Loading</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {HTA_CIRCUITS.map(c => (
+                  <tr key={c.id} className="border-t border-gray-100">
+                    <td className="px-3 py-2.5 text-gray-800">{c.name}</td>
+                    <td className="px-3 py-2.5 text-right text-gray-400 font-mono">{c.length_km} km</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className={clsx('px-2 py-0.5 rounded text-[10px] font-semibold',
+                        c.loading_pct >= 80 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                      )}>
+                        {c.loading_pct}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
