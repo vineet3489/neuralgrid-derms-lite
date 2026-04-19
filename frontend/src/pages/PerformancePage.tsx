@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Legend,
 } from 'recharts'
-import { CheckCircle, AlertTriangle } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Radio } from 'lucide-react'
 import clsx from 'clsx'
 
 // ── Demo data ────────────────────────────────────────────────────────────────
@@ -111,6 +112,40 @@ function buildVoltageSlots(seed: string): VoltageSlot[] {
       after:  parseFloat((afterBase  + noise * 0.5).toFixed(4)),
     }
   })
+}
+
+interface LiveSpgSlot { time: string; oe_limit: number; spg_actual: number }
+
+function buildLiveSpgData(progId: string, aggId: string): LiveSpgSlot[] {
+  const isEvening = progId.includes('001')
+  const startHour = isEvening ? 18 : 11
+  const oeLimit = isEvening ? 90 : 120
+  const variance = aggId.includes('demo') ? 0.87 : 0.965
+  return Array.from({ length: 60 }, (_, i) => {
+    const h = startHour + Math.floor(i / 60)
+    const m = i % 60
+    const noise = Math.sin(i * 0.42) * 7 + Math.cos(i * 0.71) * 4
+    return {
+      time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+      oe_limit: oeLimit,
+      spg_actual: parseFloat(Math.max(0, oeLimit * variance + noise).toFixed(1)),
+    }
+  })
+}
+
+function LiveSpgTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-2.5 text-xs shadow-lg">
+      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex justify-between gap-4">
+          <span style={{ color: p.color }}>{p.name}</span>
+          <span className="font-mono">{p.value} kW</span>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -361,6 +396,47 @@ export default function PerformancePage() {
                 </ResponsiveContainer>
               </div>
             </div>
+          </div>
+
+          {/* Live SPG vs OE Commitment */}
+          <div className="card">
+            <div className="flex items-center gap-2 mb-1">
+              <Radio className="w-4 h-4 text-indigo-500" />
+              <h3 className="text-sm font-semibold text-gray-900">Live SPG vs OE Commitment</h3>
+              <span className="ml-auto flex items-center gap-1 text-[10px] text-green-600 font-semibold">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                Minute-level · PT1M
+              </span>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">
+              Actual SPG-reported active power (kW) vs OE export ceiling for the dispatch window
+            </p>
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={buildLiveSpgData(selectedProgId, selectedAggId)}
+                  margin={{ top: 4, right: 4, left: -10, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="time" tick={{ fill: '#9ca3af', fontSize: 7 }} interval={9} />
+                  <YAxis tick={{ fill: '#9ca3af', fontSize: 9 }} unit=" kW" />
+                  <Tooltip content={<LiveSpgTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: '10px' }} />
+                  <Line
+                    dataKey="oe_limit" name="OE Commitment (ceiling)"
+                    stroke="#ef4444" strokeWidth={1.5} strokeDasharray="6 3" dot={false}
+                  />
+                  <Line
+                    dataKey="spg_actual" name="SPG Actual"
+                    stroke="#6366f1" strokeWidth={2} dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2">
+              Aggregator must keep SPG actual ≤ OE ceiling at all times.
+              Breaches trigger Emergency SPG alarm within 60s (DERIM v6 §4.3).
+            </p>
           </div>
 
           {/* Asset-level table */}

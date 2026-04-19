@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useGridStore } from '../stores/gridStore'
 import {
   Map, Activity, Radio, LogOut, Zap, Bell, MessageSquare,
-  Layers, Users, Cpu, Shield, Database, Settings, TrendingUp,
+  Layers, Users, Cpu, Shield, Database, Settings, TrendingUp, AlertOctagon,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -16,6 +16,7 @@ const OPERATOR_NAV = [
   { path: '/messages',   label: 'IEC Messages',       icon: MessageSquare },
   { path: '/programs',   label: 'Programs',           icon: Layers },
   { path: '/settlement', label: 'Settlement',         icon: TrendingUp },
+  { path: '/alarms',     label: 'Alarms',             icon: AlertOctagon },
 ]
 
 // ADMIN nav items (only for admin/superuser)
@@ -45,8 +46,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Zap className="w-4 h-4 text-white" />
           </div>
           <div>
-            <div className="text-sm font-bold text-white">Neural Grid</div>
-            <div className="text-[10px] text-gray-400">DERMS Lite</div>
+            <div className="text-sm font-bold text-white flex items-center gap-1">
+              <span>L&T</span>
+              <span className="text-gray-500 font-normal">×</span>
+              <span className="text-indigo-400">D4G</span>
+            </div>
+            <div className="text-[10px] text-gray-400">DERMS Platform</div>
           </div>
         </div>
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
@@ -58,7 +63,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               )}
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
-              {label}
+              <span className="flex-1">{label}</span>
+              {path === '/alarms' && criticalAlerts.length > 0 && (
+                <span className="ml-auto min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+                  {criticalAlerts.length}
+                </span>
+              )}
             </NavLink>
           ))}
 
@@ -112,12 +122,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
             <span className="text-sm text-gray-500">Auzance Distribution Network · EDF Réseau</span>
           </div>
-          {criticalAlerts.length > 0 && (
-            <div className="flex items-center gap-1.5 bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs border border-red-200">
-              <Bell className="w-3.5 h-3.5 animate-pulse" />
-              {criticalAlerts.length} Critical
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1 text-sm font-semibold">
+              <span className="text-gray-700">L&T</span>
+              <span className="text-gray-300 font-normal">×</span>
+              <span className="text-indigo-600">D4G</span>
             </div>
-          )}
+            {criticalAlerts.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs border border-red-200">
+                <Bell className="w-3.5 h-3.5 animate-pulse" />
+                {criticalAlerts.length} Critical
+              </div>
+            )}
+          </div>
         </header>
         <main className="flex-1 overflow-y-auto p-6 bg-gray-50">{children}</main>
       </div>

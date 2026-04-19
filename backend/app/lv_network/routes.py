@@ -10,6 +10,9 @@ Provides endpoints to:
 from __future__ import annotations
 
 import json
+import math
+import time as _time
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -35,6 +38,50 @@ _d4g_runtime: dict = {
 }
 
 _DEMO_D4G_URL = "https://demo.d4g.local/oe"
+
+# ---------------------------------------------------------------------------
+# Alarms store (in-memory; resets on restart)
+# ---------------------------------------------------------------------------
+
+def _make_alarms() -> list:
+    now = datetime.now(timezone.utc)
+    def _ago(minutes: float) -> str:
+        from datetime import timedelta
+        return (now - timedelta(minutes=minutes)).isoformat()
+    return [
+        {
+            "id": "ALM-001", "timestamp": _ago(3),
+            "dt_id": "DT-AUZ-005", "type": "OVERVOLTAGE", "severity": "CRITICAL",
+            "detail": "Feeder B end-of-line voltage exceeds 1.05 pu limit",
+            "value": "1.087 pu", "threshold": "1.05 pu", "status": "ACTIVE",
+        },
+        {
+            "id": "ALM-002", "timestamp": _ago(7),
+            "dt_id": "DT-AUZ-001", "type": "EMERGENCY_SPG", "severity": "CRITICAL",
+            "detail": "Community Solar A SPG measurement exceeds OE export limit",
+            "value": "142 kW", "threshold": "90 kW (OE max export)", "status": "ACTIVE",
+        },
+        {
+            "id": "ALM-003", "timestamp": _ago(18),
+            "dt_id": "DT-AUZ-003", "type": "THERMAL", "severity": "WARNING",
+            "detail": "Branch loading approaching thermal limit",
+            "value": "94%", "threshold": "90% nameplate", "status": "ACKNOWLEDGED",
+        },
+        {
+            "id": "ALM-004", "timestamp": _ago(45),
+            "dt_id": "DT-AUZ-002", "type": "OVERVOLTAGE", "severity": "WARNING",
+            "detail": "Feeder A voltage elevated during solar peak",
+            "value": "1.052 pu", "threshold": "1.05 pu", "status": "CLEARED",
+        },
+        {
+            "id": "ALM-005", "timestamp": _ago(62),
+            "dt_id": "DT-AUZ-005", "type": "EMERGENCY_SPG", "severity": "CRITICAL",
+            "detail": "Bois-Rond Solar Farm SPG unresponsive — no ACK within 60s",
+            "value": "No response", "threshold": "60s timeout", "status": "ACKNOWLEDGED",
+        },
+    ]
+
+_alarms: list = _make_alarms()
 
 # IEC message endpoint config (inbound/outbound for each document type)
 _iec_endpoints: dict = {
@@ -607,4 +654,106 @@ async def send_oe_to_d4g(
             .get("Period", {})
             .get("Point", [])
         ),
+    }
+
+
+@router.get("/alarms")
+async def list_alarms(
+    status: Optional[str] = Query(None, description="Filter by status: ACTIVE | ACKNOWLEDGED | CLEARED"),
+    current_user: CurrentUserDep = None,
+) -> dict:
+    """Return network alarms (overvoltage, emergency SPG, thermal)."""
+    alarms = _alarms if not status else [a for a in _alarms if a["status"] == status]
+    return {
+        "alarms": alarms,
+        "active_count": sum(1 for a in _alarms if a["status"] == "ACTIVE"),
+        "total": len(_alarms),
+    }
+
+
+@router.post("/alarms/{alarm_id}/ack")
+async def acknowledge_alarm(
+    alarm_id: str,
+    current_user: CurrentUserDep = None,
+) -> dict:
+    """Acknowledge an alarm by ID."""
+    for alarm in _alarms:
+        if alarm["id"] == alarm_id:
+            if alarm["status"] == "ACTIVE":
+                alarm["status"] = "ACKNOWLEDGED"
+            return {"ok": True, "id": alarm_id, "status": alarm["status"]}
+    raise HTTPException(status_code=404, detail=f"Alarm '{alarm_id}' not found")
+
+
+@router.get("/live-measurements")
+async def get_live_measurements(
+    dt_id: str = Query("DT-AUZ-001", description="Distribution transformer ID"),
+    current_user: CurrentUserDep = None,
+) -> dict:
+    """
+    Simulated minute-level SPG measurements for enrolled assets on a DT.
+
+    Uses current time to derive realistic solar/load profiles.
+    In production this would receive data from the SPG telemetry channel.
+    """
+    now = datetime.now(timezone.utc)
+    hour = now.hour + now.minute / 60.0
+    # Solar generation curve (peaks ~13:00)
+    solar_factor = max(0.0, math.sin(math.pi * (hour - 6.0) / 12.0))
+    t = _time.time()
+
+    if dt_id == "DT-AUZ-001":
+        enrolled_assets = [
+            {
+                "name": "Community Solar A", "type": "Solar PV",
+                "p_kw": round(57.0 * solar_factor + math.sin(t * 0.11) * 2.5, 1),
+                "q_kvar": round(8.5 + math.sin(t * 0.07) * 0.8, 1),
+                "enrolled": True,
+            },
+            {
+                "name": "Community Solar B", "type": "Solar PV",
+                "p_kw": round(43.0 * solar_factor + math.sin(t * 0.13) * 1.8, 1),
+                "q_kvar": round(6.2 + math.sin(t * 0.09) * 0.5, 1),
+                "enrolled": True,
+            },
+            {
+                "name": "Fougères BESS", "type": "Battery",
+                "p_kw": round(12.0 + math.sin(t * 0.05) * 3.2, 1),
+                "q_kvar": round(2.1 + math.sin(t * 0.06) * 0.3, 1),
+                "enrolled": True,
+            },
+        ]
+        residual_load = 42.5 + math.sin(t * 0.03) * 7.0
+    elif dt_id == "DT-AUZ-005":
+        enrolled_assets = [
+            {
+                "name": "Bois-Rond Solar Farm", "type": "Solar PV",
+                "p_kw": round(96.0 * solar_factor + math.sin(t * 0.09) * 4.1, 1),
+                "q_kvar": round(14.2 + math.sin(t * 0.08) * 1.2, 1),
+                "enrolled": True,
+            },
+            {
+                "name": "Bois-Rond BESS", "type": "Battery",
+                "p_kw": round(18.0 + math.sin(t * 0.07) * 2.4, 1),
+                "q_kvar": round(3.8 + math.sin(t * 0.05) * 0.4, 1),
+                "enrolled": True,
+            },
+        ]
+        residual_load = 28.0 + math.sin(t * 0.04) * 5.5
+    else:
+        enrolled_assets = []
+        residual_load = 30.0 + math.sin(t * 0.03) * 6.0
+
+    total_enrolled_p = sum(a["p_kw"] for a in enrolled_assets)
+    dt_total_p = round(total_enrolled_p + residual_load, 1)
+
+    return {
+        "dt_id": dt_id,
+        "timestamp": now.isoformat(),
+        "interval": "PT1M",
+        "dt_total_p_kw": dt_total_p,
+        "residual_load_kw": round(residual_load, 1),
+        "enrolled_total_p_kw": round(total_enrolled_p, 1),
+        "assets": enrolled_assets,
+        "note": "residual_load = DT_head_measurement − enrolled_spg_sum (top-down subtraction)",
     }

@@ -1,11 +1,15 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DISTRIBUTION_TRANSFORMERS } from '../data/auzanceNetwork'
 import {
   AlertTriangle, CheckCircle, Copy, ChevronDown, ChevronUp,
-  Loader2, Send, Cpu, RefreshCw, TrendingDown,
+  Loader2, Send, Cpu, RefreshCw, TrendingDown, Activity, Zap,
 } from 'lucide-react'
 import clsx from 'clsx'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, ReferenceLine, Legend,
+} from 'recharts'
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/authStore'
 
@@ -114,6 +118,65 @@ function buildOEDocument(dtId: string, points: OEPoint[]) {
   }
 }
 
+// ── Chart data builders ───────────────────────────────────────────────────────
+
+interface VoltageProfileSlot { time: string; feederA: number; feederB: number; feederC: number }
+interface ReactivePowerSlot { time: string; qTotal: number; qInductive: number }
+
+function buildVoltageProfile(points: OEPoint[]): VoltageProfileSlot[] {
+  return points.map((p) => {
+    const vBase = p.min_v_end_pu ?? (1.0 - (p.quantity_Maximum / 500) * 0.04)
+    return {
+      time: p.time,
+      feederA: parseFloat(Math.min(1.12, Math.max(0.90, vBase + 0.009)).toFixed(4)),
+      feederB: parseFloat(Math.min(1.12, Math.max(0.90, vBase)).toFixed(4)),
+      feederC: parseFloat(Math.min(1.12, Math.max(0.90, vBase - 0.006)).toFixed(4)),
+    }
+  })
+}
+
+function buildReactivePower(points: OEPoint[]): ReactivePowerSlot[] {
+  return points.map((p, i) => {
+    const pBase = Math.max(10, Math.abs(p.quantity_Minimum))
+    const qTotal = pBase * 0.18 + Math.sin(i * 0.55) * 4.5
+    return {
+      time: p.time,
+      qTotal: parseFloat(qTotal.toFixed(1)),
+      qInductive: parseFloat((qTotal * 0.72).toFixed(1)),
+    }
+  })
+}
+
+function VoltageTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-2.5 text-xs shadow-lg">
+      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex justify-between gap-3">
+          <span style={{ color: p.color }}>{p.name}</span>
+          <span className="font-mono">{p.value} pu</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ReactiveTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-2.5 text-xs shadow-lg">
+      <p className="font-semibold text-gray-700 mb-1">{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex justify-between gap-3">
+          <span style={{ color: p.color }}>{p.name}</span>
+          <span className="font-mono">{p.value} kVAr</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function OperatingEnvelopePage() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
@@ -137,6 +200,44 @@ export default function OperatingEnvelopePage() {
   const [sentBanner, setSentBanner] = useState<{ text: string; isDemo: boolean; ackId?: string } | null>(null)
   const [sending, setSending] = useState(false)
   const [d4gIsDemo, setD4gIsDemo] = useState(true)
+
+  // Dynamic OE state
+  const [dynamicOeEnabled, setDynamicOeEnabled] = useState(false)
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
+  const [secondsAgo, setSecondsAgo] = useState(0)
+  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Countdown ticker
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (lastRefreshedAt) setSecondsAgo(Math.floor((Date.now() - lastRefreshedAt.getTime()) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [lastRefreshedAt])
+
+  // Auto-refresh every 60s when dynamic OE is enabled and OE has been generated
+  useEffect(() => {
+    if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
+    if (!dynamicOeEnabled || !pfConfirmed) return
+    refreshTimerRef.current = setInterval(async () => {
+      if (selectedDtId !== 'DT-AUZ-001') return
+      try {
+        const resp = await api.lindistflowOE(selectedDtId)
+        const pts: OEPoint[] = resp.data.slots.map((s: any) => ({
+          position: s.position, time: s.time,
+          quantity_Minimum: s.quantity_Minimum, quantity_Maximum: s.quantity_Maximum,
+          qualityCode: s.qualityCode, constraint: s.constraint,
+          total_load_kw: s.total_load_kw, dt_loading_pct: s.dt_loading_pct,
+          min_v_end_pu: s.min_v_end_pu, branch_B_load_kw: s.branch_B_load_kw,
+          source: s.source,
+        }))
+        setOePoints(pts)
+        setOeDoc(buildOEDocument(selectedDtId, pts))
+        setLastRefreshedAt(new Date())
+      } catch { /* silent — keep last good data */ }
+    }, 60_000)
+    return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current) }
+  }, [dynamicOeEnabled, pfConfirmed, selectedDtId])
 
   // Load D4G demo/live status from backend on mount
   useEffect(() => {
@@ -186,6 +287,7 @@ export default function OperatingEnvelopePage() {
     setOeSolver(solver)
     const doc = buildOEDocument(selectedDtId, pts)
     setOeDoc(doc)
+    setLastRefreshedAt(new Date())
     setOeLoading(false)
 
     setSending(true)
@@ -327,6 +429,36 @@ export default function OperatingEnvelopePage() {
           </div>
         </div>
         {oeError && <p className="text-xs text-amber-500 mt-2">{oeError}</p>}
+        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <div
+                onClick={() => setDynamicOeEnabled(v => !v)}
+                className={clsx(
+                  'relative w-8 h-4 rounded-full transition-colors',
+                  dynamicOeEnabled ? 'bg-indigo-600' : 'bg-gray-300'
+                )}
+              >
+                <div className={clsx(
+                  'absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform',
+                  dynamicOeEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                )} />
+              </div>
+              <span className="text-xs text-gray-600 font-medium">Dynamic OE</span>
+            </label>
+            <p className="text-[11px] text-gray-400 mt-0.5 ml-10">
+              Auto-refresh limits every 60s from live SPG measurements
+            </p>
+          </div>
+          {dynamicOeEnabled && lastRefreshedAt && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-green-600 font-medium">Live</span>
+              <span className="text-gray-400">· refreshed {secondsAgo}s ago</span>
+              {secondsAgo > 50 && <span className="text-amber-500">(updating…)</span>}
+            </div>
+          )}
+        </div>
       </div>
 
 
@@ -409,6 +541,64 @@ export default function OperatingEnvelopePage() {
             After the flexibility period, the aggregator submits an A44 settlement document with metered actuals.
             The Settlement tab will reconcile OE limits vs actual DER response.
           </p>
+        </div>
+      )}
+
+      {/* Voltage profile + reactive power charts */}
+      {oePoints.length > 0 && (
+        <div className="grid grid-cols-2 gap-4">
+          {/* Voltage profile */}
+          <div className="card">
+            <div className="flex items-center gap-2 mb-1">
+              <Activity className="w-4 h-4 text-indigo-500" />
+              <h3 className="text-sm font-semibold text-gray-900">LV Feeder Voltage Profile</h3>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">End-of-feeder voltage (pu) across 48 slots — 3 feeders</p>
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={buildVoltageProfile(oePoints)} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="time" tick={{ fill: '#9ca3af', fontSize: 7 }} interval={7} />
+                  <YAxis
+                    tick={{ fill: '#9ca3af', fontSize: 9 }}
+                    domain={[0.90, 1.12]}
+                    tickFormatter={v => v.toFixed(2)}
+                  />
+                  <Tooltip content={<VoltageTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: '10px' }} />
+                  <ReferenceLine y={1.05} stroke="#ef4444" strokeDasharray="4 2" strokeWidth={1}
+                    label={{ value: '1.05 limit', position: 'insideTopRight', fontSize: 7, fill: '#ef4444' }} />
+                  <ReferenceLine y={0.95} stroke="#ef4444" strokeDasharray="4 2" strokeWidth={1}
+                    label={{ value: '0.95 limit', position: 'insideBottomRight', fontSize: 7, fill: '#ef4444' }} />
+                  <Line dataKey="feederA" name="Feeder A" stroke="#6366f1" strokeWidth={1.5} dot={false} />
+                  <Line dataKey="feederB" name="Feeder B" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
+                  <Line dataKey="feederC" name="Feeder C" stroke="#10b981" strokeWidth={1.5} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Reactive power */}
+          <div className="card">
+            <div className="flex items-center gap-2 mb-1">
+              <Zap className="w-4 h-4 text-amber-500" />
+              <h3 className="text-sm font-semibold text-gray-900">Reactive Power (Q)</h3>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">DT reactive demand (kVAr) across 48 slots — ENTSO-E context</p>
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={buildReactivePower(oePoints)} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="time" tick={{ fill: '#9ca3af', fontSize: 7 }} interval={7} />
+                  <YAxis tick={{ fill: '#9ca3af', fontSize: 9 }} unit=" kVAr" />
+                  <Tooltip content={<ReactiveTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: '10px' }} />
+                  <Line dataKey="qTotal" name="Q Total" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                  <Line dataKey="qInductive" name="Q Inductive" stroke="#d97706" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </div>
       )}
 
