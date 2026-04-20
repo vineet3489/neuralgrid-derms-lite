@@ -76,6 +76,60 @@ const TICK_LABELS: Record<number, string> = {
   40: '20:00', 44: '22:00', 47: '23:30',
 }
 
+// ─── 1-min live window ────────────────────────────────────────────────────────
+
+interface LiveMinSlot {
+  minute: number
+  time: string
+  totalLoad: number
+  violation: boolean
+  isNow: boolean
+  isForecast: boolean
+}
+
+function buildLiveMinutes(): LiveMinSlot[] {
+  const now = new Date()
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  const baseSum = BASE_LOADS['BR-A'] + BASE_LOADS['BR-B'] + BASE_LOADS['BR-C']
+  // Show 30 min of actuals + 30 min of near-term forecast = 60 bars
+  return Array.from({ length: 60 }, (_, i) => {
+    const absMin = nowMin - 29 + i
+    const clampedMin = ((absMin % 1440) + 1440) % 1440
+    const h = Math.floor(clampedMin / 60)
+    const m = clampedMin % 60
+    const diurnalIdx = Math.min(Math.floor(clampedMin / 30), 47)
+    const mult = DIURNAL[diurnalIdx]
+    const noise = Math.sin(i * 0.73 + h) * 6 + Math.cos(i * 1.2) * 4
+    const totalLoad = Math.max(10, parseFloat((mult * baseSum + noise).toFixed(1)))
+    return {
+      minute: i,
+      time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+      totalLoad,
+      violation: totalLoad > DT_LIMIT,
+      isNow: i === 29,
+      isForecast: i >= 29,
+    }
+  })
+}
+
+function LiveMinTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null
+  const d = payload[0]?.payload as LiveMinSlot
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-3 text-xs shadow-xl">
+      <p className="font-semibold text-gray-900 mb-1">{d?.time}</p>
+      <div className="flex justify-between gap-4">
+        <span className="text-gray-500">DT Load</span>
+        <span className="font-mono text-gray-900">{d?.totalLoad} kW</span>
+      </div>
+      <div className="text-[10px] text-gray-400 mt-1">
+        {d?.isForecast ? 'Near-term forecast' : 'Measured (SPG)'}
+      </div>
+      {d?.violation && <div className="text-red-400 mt-1 font-semibold">Thermal violation</div>}
+    </div>
+  )
+}
+
 function ForecastTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload as ForecastSlot
@@ -220,14 +274,22 @@ export default function ForecastPage() {
   const location = useLocation()
   const navState = location.state as { slot?: number; dtId?: string } | null
 
+  const [activeView, setActiveView] = useState<'dayahead' | 'live'>('dayahead')
   const [slotIndex, setSlotIndex] = useState<number>(() => navState?.slot ?? defaultSlot())
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<PowerFlowResult | null>(null)
   const [ranSlot, setRanSlot] = useState<number | null>(null)
   const [forecastData, setForecastData] = useState<ForecastSlot[]>(() => buildForecast())
   const [forecastLoading, setForecastLoading] = useState(false)
+  const [liveData, setLiveData] = useState<LiveMinSlot[]>(() => buildLiveMinutes())
 
   const controlsRef = useRef<HTMLDivElement>(null)
+
+  // Refresh live 1-min data every 60s
+  useEffect(() => {
+    const id = setInterval(() => setLiveData(buildLiveMinutes()), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     setForecastLoading(true)
@@ -342,64 +404,149 @@ export default function ForecastPage() {
         </div>
       )}
 
-      {/* 48-slot bar chart */}
+      {/* Chart card with view toggle */}
       <div className="card">
-        <h3 className="text-sm font-semibold text-gray-900 mb-0.5">
-          DT Aggregate Load — 48 × PT30M
-          {forecastLoading && <span className="ml-2 text-xs text-gray-400 font-normal">Loading…</span>}
-        </h3>
-        <p className="text-xs text-gray-500 mb-4">Click any bar to snap the time slider to that slot</p>
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={forecastData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} onClick={handleBarClick} style={{ cursor: 'pointer' }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis
-                dataKey="slot"
-                tick={{ fill: '#6b7280', fontSize: 9 }}
-                ticks={X_TICKS}
-                tickFormatter={(v) => TICK_LABELS[v] || ''}
-              />
-              <YAxis
-                tick={{ fill: '#6b7280', fontSize: 10 }}
-                unit=" kW"
-                domain={[0, Math.ceil(Math.max(...forecastData.map(d => d.totalLoad)) / 100) * 100 + 50]}
-              />
-              <Tooltip content={<ForecastTooltip />} />
-              <ReferenceLine
-                y={DT_LIMIT}
-                stroke="#ef4444"
-                strokeDasharray="6 3"
-                strokeWidth={1.5}
-                label={{ value: `${DT_LIMIT} kW limit`, position: 'insideTopRight', fontSize: 9, fill: '#ef4444' }}
-              />
-              {/* Selected slot indicator */}
-              <ReferenceLine
-                x={slotIndex}
-                stroke="#818cf8"
-                strokeWidth={2}
-                strokeDasharray="4 2"
-              />
-              <Bar dataKey="totalLoad" radius={[2, 2, 0, 0]}>
-                {forecastData.map((d) => (
-                  <Cell
-                    key={d.slot}
-                    fill={
-                      d.slot === slotIndex ? '#a5b4fc'
-                      : d.violation ? '#ef4444'
-                      : '#6366f1'
-                    }
-                    opacity={d.slot === slotIndex ? 1 : 0.7}
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            {activeView === 'dayahead' ? (
+              <>
+                <h3 className="text-sm font-semibold text-gray-900">
+                  DT Aggregate Load — 48 × PT30M
+                  {forecastLoading && <span className="ml-2 text-xs text-gray-400 font-normal">Loading…</span>}
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">Click any bar to snap the time slider to that slot</p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  Live Load — 60 × PT1M
+                  <span className="flex items-center gap-1 text-[10px] text-green-600 font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
+                    Live · 1-min
+                  </span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Past 30 min (measured) + next 30 min (forecast) · auto-refresh every 60s
+                </p>
+              </>
+            )}
+          </div>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs flex-shrink-0">
+            <button
+              onClick={() => setActiveView('dayahead')}
+              className={clsx(
+                'px-3 py-1.5 font-medium transition-colors',
+                activeView === 'dayahead' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+              )}
+            >
+              Day-Ahead · PT30M
+            </button>
+            <button
+              onClick={() => setActiveView('live')}
+              className={clsx(
+                'px-3 py-1.5 font-medium transition-colors border-l border-gray-200',
+                activeView === 'live' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+              )}
+            >
+              Live · PT1M
+            </button>
+          </div>
+        </div>
+
+        {activeView === 'dayahead' ? (
+          <>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={forecastData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} onClick={handleBarClick} style={{ cursor: 'pointer' }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="slot"
+                    tick={{ fill: '#6b7280', fontSize: 9 }}
+                    ticks={X_TICKS}
+                    tickFormatter={(v) => TICK_LABELS[v] || ''}
                   />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex items-center gap-5 mt-2 text-[10px] text-gray-500">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500/70 rounded-sm inline-block" />Normal</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500 rounded-sm inline-block" />Thermal violation</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-300 rounded-sm inline-block" />Selected slot</span>
-        </div>
+                  <YAxis
+                    tick={{ fill: '#6b7280', fontSize: 10 }}
+                    unit=" kW"
+                    domain={[0, Math.ceil(Math.max(...forecastData.map(d => d.totalLoad)) / 100) * 100 + 50]}
+                  />
+                  <Tooltip content={<ForecastTooltip />} />
+                  <ReferenceLine
+                    y={DT_LIMIT}
+                    stroke="#ef4444"
+                    strokeDasharray="6 3"
+                    strokeWidth={1.5}
+                    label={{ value: `${DT_LIMIT} kW limit`, position: 'insideTopRight', fontSize: 9, fill: '#ef4444' }}
+                  />
+                  <ReferenceLine x={slotIndex} stroke="#818cf8" strokeWidth={2} strokeDasharray="4 2" />
+                  <Bar dataKey="totalLoad" radius={[2, 2, 0, 0]}>
+                    {forecastData.map((d) => (
+                      <Cell
+                        key={d.slot}
+                        fill={d.slot === slotIndex ? '#a5b4fc' : d.violation ? '#ef4444' : '#6366f1'}
+                        opacity={d.slot === slotIndex ? 1 : 0.7}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex items-center gap-5 mt-2 text-[10px] text-gray-500">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500/70 rounded-sm inline-block" />Normal</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500 rounded-sm inline-block" />Thermal violation</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-300 rounded-sm inline-block" />Selected slot</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={liveData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="time"
+                    tick={{ fill: '#6b7280', fontSize: 8 }}
+                    interval={9}
+                  />
+                  <YAxis
+                    tick={{ fill: '#6b7280', fontSize: 10 }}
+                    unit=" kW"
+                    domain={[0, Math.ceil(Math.max(...liveData.map(d => d.totalLoad)) / 100) * 100 + 50]}
+                  />
+                  <Tooltip content={<LiveMinTooltip />} />
+                  <ReferenceLine
+                    y={DT_LIMIT}
+                    stroke="#ef4444"
+                    strokeDasharray="6 3"
+                    strokeWidth={1.5}
+                    label={{ value: `${DT_LIMIT} kW limit`, position: 'insideTopRight', fontSize: 9, fill: '#ef4444' }}
+                  />
+                  {/* "Now" marker */}
+                  <ReferenceLine
+                    x={liveData[29]?.time}
+                    stroke="#6366f1"
+                    strokeWidth={2}
+                    label={{ value: 'Now', position: 'insideTopLeft', fontSize: 9, fill: '#6366f1' }}
+                  />
+                  <Bar dataKey="totalLoad" radius={[2, 2, 0, 0]}>
+                    {liveData.map((d, i) => (
+                      <Cell
+                        key={i}
+                        fill={d.violation ? '#ef4444' : d.isForecast ? '#a5b4fc' : '#6366f1'}
+                        opacity={d.isNow ? 1 : 0.8}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex items-center gap-5 mt-2 text-[10px] text-gray-500">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500/80 rounded-sm inline-block" />Measured (SPG)</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-300 rounded-sm inline-block" />Near-term forecast</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500 rounded-sm inline-block" />Thermal violation</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Power flow controls */}

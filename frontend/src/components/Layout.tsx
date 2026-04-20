@@ -14,7 +14,6 @@ const OPERATOR_NAV = [
   { path: '/lookahead',  label: 'Look-Ahead & Flow',  icon: Activity },
   { path: '/oe',         label: 'OE Dispatch',        icon: Radio },
   { path: '/messages',   label: 'IEC Messages',       icon: MessageSquare },
-  { path: '/programs',   label: 'Programs',           icon: Layers },
   { path: '/settlement', label: 'Settlement',         icon: TrendingUp },
   { path: '/alarms',     label: 'Alarms',             icon: AlertOctagon },
 ]

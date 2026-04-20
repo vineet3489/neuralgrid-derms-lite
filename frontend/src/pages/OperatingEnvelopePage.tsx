@@ -199,10 +199,8 @@ export default function OperatingEnvelopePage() {
   const [oeSolver, setOeSolver] = useState<'LinDistFlow' | 'NetworkModel'>('NetworkModel')
   const [sentBanner, setSentBanner] = useState<{ text: string; isDemo: boolean; ackId?: string } | null>(null)
   const [sending, setSending] = useState(false)
-  const [d4gIsDemo, setD4gIsDemo] = useState(true)
 
-  // Dynamic OE state
-  const [dynamicOeEnabled, setDynamicOeEnabled] = useState(false)
+  // Dynamic OE state — always-on once OE is generated
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null)
   const [secondsAgo, setSecondsAgo] = useState(0)
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -215,10 +213,10 @@ export default function OperatingEnvelopePage() {
     return () => clearInterval(id)
   }, [lastRefreshedAt])
 
-  // Auto-refresh every 60s when dynamic OE is enabled and OE has been generated
+  // Auto-refresh every 60s once OE has been generated (pfConfirmed gate still applies)
   useEffect(() => {
     if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
-    if (!dynamicOeEnabled || !pfConfirmed) return
+    if (!pfConfirmed) return
     refreshTimerRef.current = setInterval(async () => {
       if (selectedDtId !== 'DT-AUZ-001') return
       try {
@@ -237,17 +235,7 @@ export default function OperatingEnvelopePage() {
       } catch { /* silent — keep last good data */ }
     }, 60_000)
     return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current) }
-  }, [dynamicOeEnabled, pfConfirmed, selectedDtId])
-
-  // Load D4G demo/live status from backend on mount
-  useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/d4g-config`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` },
-    })
-      .then((r) => r.json())
-      .then((cfg) => { if (cfg.is_demo !== undefined) setD4gIsDemo(cfg.is_demo) })
-      .catch(() => {})
-  }, [])
+  }, [pfConfirmed, selectedDtId])
 
   const handleGenerateAndSend = useCallback(async () => {
     setOeLoading(true)
@@ -356,12 +344,13 @@ export default function OperatingEnvelopePage() {
           </div>
           <p className="text-sm text-gray-500 mt-0.5">IEC 62746-4 · A38 ReferenceEnergyCurveOperatingEnvelope · 48-slot · PT30M</p>
         </div>
-        <span className={clsx(
-          'text-[10px] font-bold px-2 py-1 rounded border',
-          d4gIsDemo ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-green-100 text-green-700 border-green-200'
-        )}>
-          D4G: {d4gIsDemo ? 'DEMO' : 'LIVE'}
-        </span>
+        {lastRefreshedAt && (
+          <div className="flex items-center gap-1.5 text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-green-600 font-medium">Dynamic OE · Live</span>
+            <span className="text-gray-400">refreshed {secondsAgo}s ago</span>
+          </div>
+        )}
       </div>
 
       {/* Controls */}
@@ -429,36 +418,11 @@ export default function OperatingEnvelopePage() {
           </div>
         </div>
         {oeError && <p className="text-xs text-amber-500 mt-2">{oeError}</p>}
-        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-          <div>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <div
-                onClick={() => setDynamicOeEnabled(v => !v)}
-                className={clsx(
-                  'relative w-8 h-4 rounded-full transition-colors',
-                  dynamicOeEnabled ? 'bg-indigo-600' : 'bg-gray-300'
-                )}
-              >
-                <div className={clsx(
-                  'absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform',
-                  dynamicOeEnabled ? 'translate-x-4' : 'translate-x-0.5'
-                )} />
-              </div>
-              <span className="text-xs text-gray-600 font-medium">Dynamic OE</span>
-            </label>
-            <p className="text-[11px] text-gray-400 mt-0.5 ml-10">
-              Auto-refresh limits every 60s from live SPG measurements
-            </p>
-          </div>
-          {dynamicOeEnabled && lastRefreshedAt && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-green-600 font-medium">Live</span>
-              <span className="text-gray-400">· refreshed {secondsAgo}s ago</span>
-              {secondsAgo > 50 && <span className="text-amber-500">(updating…)</span>}
-            </div>
-          )}
-        </div>
+        {pfConfirmed && (
+          <p className="text-[11px] text-gray-400 mt-2">
+            OE limits auto-refresh every 60s from live SPG measurements once generated.
+          </p>
+        )}
       </div>
 
 
@@ -467,7 +431,7 @@ export default function OperatingEnvelopePage() {
         <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
           <span>{sentBanner.text}</span>
-          {(sentBanner.isDemo || d4gIsDemo) && (
+          {sentBanner.isDemo && (
             <span className="ml-2 text-[10px] bg-amber-100 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded font-bold">DEMO</span>
           )}
         </div>
