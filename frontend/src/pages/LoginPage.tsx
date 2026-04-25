@@ -40,7 +40,7 @@ export default function LoginPage() {
 
   // Redirect if already logged in
   useEffect(() => {
-    if (token) navigate('/dashboard', { replace: true })
+    if (token) navigate('/network', { replace: true })
   }, [token, navigate])
 
   // Load deployments on mount
@@ -105,7 +105,7 @@ export default function LoginPage() {
       const { access_token, user } = res.data
       setToken(access_token)
       if (user) setUser(user)
-      navigate('/dashboard', { replace: true })
+      navigate('/network', { replace: true })
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
