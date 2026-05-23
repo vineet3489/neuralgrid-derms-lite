@@ -361,8 +361,11 @@ export default function OperatingEnvelopePage() {
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-gray-900">OE Dispatch</h1>
             <span className="px-2 py-0.5 rounded text-xs font-bold bg-indigo-100 text-indigo-600 border border-indigo-200 font-mono">A38</span>
+            <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">FCA · Remedial Action</span>
           </div>
-          <p className="text-sm text-gray-500 mt-0.5">IEC 62746-4 · A38 ReferenceEnergyCurveOperatingEnvelope · 48-slot · PT30M</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Flexibility Connection Agreement · OE = contract not to exceed x MW on constrained resource · Solar SPG · Flex Down
+          </p>
         </div>
         {lastRefreshedAt && (
           <div className="flex items-center gap-1.5 text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
@@ -473,22 +476,22 @@ export default function OperatingEnvelopePage() {
         <div className="card">
           <div className="flex items-center gap-2 mb-3">
             <TrendingDown className="w-4 h-4 text-indigo-600" />
-            <h3 className="text-sm font-semibold text-gray-900">Expected Flex Response</h3>
-            <span className="text-[10px] text-gray-400 ml-1">— DSO asks aggregator to curtail to OE limits</span>
+            <h3 className="text-sm font-semibold text-gray-900">Expected Flex Down Response</h3>
+            <span className="text-[10px] text-gray-400 ml-1">— DSO requests Solar SPG curtailment to OE limit</span>
           </div>
           <p className="text-xs text-gray-500 mb-3">
-            Total curtailment requested from aggregator across constrained slots:{' '}
+            Generation curtailment requested across constrained slots:{' '}
             <span className="font-semibold text-indigo-600">{totalCurtailmentKw.toFixed(0)} kW peak</span>.
-            Actual compliance reported in settlement (A44) after the period.
+            A44 settlement document submitted by aggregator with metered actuals after the period.
           </p>
           <div className="overflow-auto max-h-48">
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-gray-50">
                 <tr>
                   <th className="text-left text-gray-500 font-medium px-2 py-1.5">Time</th>
-                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Expected Load (kW)</th>
-                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">OE Import Limit (kW)</th>
-                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Curtailment (kW)</th>
+                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Forecast Generation (kW)</th>
+                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Flex Down Limit (kW)</th>
+                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Curtailment Req. (kW)</th>
                   <th className="text-left text-gray-500 font-medium px-2 py-1.5">Status</th>
                 </tr>
               </thead>
@@ -517,8 +520,8 @@ export default function OperatingEnvelopePage() {
             </table>
           </div>
           <p className="text-[10px] text-gray-400 mt-2">
-            After the flexibility period, the aggregator submits an A44 settlement document with metered actuals.
-            The Settlement tab will reconcile OE limits vs actual DER response.
+            After the flexibility period, the aggregator submits an A44 settlement document with metered Solar SPG actuals.
+            Settlement tab reconciles Flex Down limits vs actual generation response.
           </p>
         </div>
       )}
@@ -609,9 +612,9 @@ export default function OperatingEnvelopePage() {
             </div>
           </div>
           <p className="text-[11px] text-gray-400 mb-3">
-            DSO → Aggregator: physical capacity limits per 30-min slot.
-            <span className="text-blue-500"> Import Max</span> = max load DERs may consume (curtail EVs if exceeded).
-            <span className="text-green-600"> Export Max</span> = max generation DERs may inject (cap solar/battery discharge).
+            DSO → Aggregator: OE as a contract not to exceed x MW on the constrained resource.
+            <span className="text-green-600"> Flex Down limit</span> = max generation the Solar SPG may inject (curtailment threshold).
+            Import side is N/A — Solar SPG has no load capability.
           </p>
 
           {showRawOE && (
@@ -626,8 +629,8 @@ export default function OperatingEnvelopePage() {
                 <tr>
                   <th className="text-left text-gray-500 font-medium px-2 py-1.5">Slot</th>
                   <th className="text-left text-gray-500 font-medium px-2 py-1.5">Time</th>
-                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Import Max (kW)</th>
-                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Export Max (kW)</th>
+                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Import Cap (kW)</th>
+                  <th className="text-right text-gray-500 font-medium px-2 py-1.5">Flex Down Limit (kW)</th>
                   {oeSolver === 'LinDistFlow' && <>
                     <th className="text-right text-gray-500 font-medium px-2 py-1.5">DT Load %</th>
                     <th className="text-right text-gray-500 font-medium px-2 py-1.5">V_min (pu)</th>
@@ -644,10 +647,10 @@ export default function OperatingEnvelopePage() {
                     <td className="px-2 py-1 text-gray-500 font-mono">{p.position}</td>
                     <td className="px-2 py-1 text-gray-700 font-mono">{p.time}</td>
                     <td className="px-2 py-1 text-right">
-                      <span className="text-blue-500 font-mono">{Math.abs(p.quantity_Minimum).toFixed(1)}</span>
+                      <span className="text-gray-300 font-mono text-[10px]">N/A</span>
                     </td>
                     <td className="px-2 py-1 text-right">
-                      <span className={clsx('font-mono', p.quantity_Maximum <= 0 ? 'text-red-400' : 'text-green-600')}>
+                      <span className={clsx('font-mono font-semibold', p.quantity_Maximum <= 0 ? 'text-red-400' : 'text-green-600')}>
                         {p.quantity_Maximum.toFixed(1)}
                       </span>
                     </td>

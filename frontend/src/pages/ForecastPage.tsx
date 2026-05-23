@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, Cell,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, Cell, Legend,
 } from 'recharts'
 import {
   DEMO_DT, LV_BRANCHES_DEMO,
@@ -289,6 +289,8 @@ export default function ForecastPage() {
   const [d4gBaseline, setD4gBaseline] = useState<any>(null)
   const [d4gActualPower, setD4gActualPower] = useState<any>(null)
   const [integrationsLoading, setIntegrationsLoading] = useState(false)
+  // D4G baseline overlaid on day-ahead chart (96 PT15M → sampled to 48 PT30M)
+  const [baselineOverlay, setBaselineOverlay] = useState<Record<number, number>>({})
 
   const controlsRef = useRef<HTMLDivElement>(null)
 
@@ -296,6 +298,23 @@ export default function ForecastPage() {
   useEffect(() => {
     const id = setInterval(() => setLiveData(buildLiveMinutes()), 60_000)
     return () => clearInterval(id)
+  }, [])
+
+  // Fetch D4G baseline on mount to populate chart overlay
+  useEffect(() => {
+    api.d4gBaseline().then(r => {
+      const pts: any[] = r.data?.points ?? []
+      if (pts.length >= 2) {
+        const overlay: Record<number, number> = {}
+        for (let i = 0; i < 48; i++) {
+          const a = parseFloat(pts[i * 2]?.['Baseline_Quantity.quantity'] ?? pts[i * 2]?.quantity ?? 0)
+          const b = parseFloat(pts[i * 2 + 1]?.['Baseline_Quantity.quantity'] ?? pts[i * 2 + 1]?.quantity ?? 0)
+          overlay[i] = Math.round(((a + b) / 2) * 4 * 10) / 10
+        }
+        setBaselineOverlay(overlay)
+        setD4gBaseline(r.data)
+      }
+    }).catch(() => {})
   }, [])
 
   // Auto-run power flow on mount (for current slot)
@@ -333,7 +352,21 @@ export default function ForecastPage() {
       api.d4gActualPower().catch(() => null),
     ]).then(([sched, baseline, actual]) => {
       if (sched) setSchedulerStatus(sched.data)
-      if (baseline) setD4gBaseline(baseline.data)
+      if (baseline) {
+        setD4gBaseline(baseline.data)
+        // Map 96 × PT15M points → 48 PT30M slots for chart overlay
+        // D4G baseline is in kWh per PT15M; ×4 → avg kW; pair up adjacent points
+        const pts: any[] = baseline.data?.points ?? []
+        if (pts.length >= 2) {
+          const overlay: Record<number, number> = {}
+          for (let i = 0; i < 48; i++) {
+            const a = parseFloat(pts[i * 2]?.['Baseline_Quantity.quantity'] ?? pts[i * 2]?.quantity ?? 0)
+            const b = parseFloat(pts[i * 2 + 1]?.['Baseline_Quantity.quantity'] ?? pts[i * 2 + 1]?.quantity ?? 0)
+            overlay[i] = Math.round(((a + b) / 2) * 4 * 10) / 10  // kWh → avg kW
+          }
+          setBaselineOverlay(overlay)
+        }
+      }
       if (actual) setD4gActualPower(actual.data)
     }).finally(() => setIntegrationsLoading(false))
   }, [activeView])
@@ -432,17 +465,16 @@ export default function ForecastPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Look-Ahead &amp; Power Flow</h1>
+          <h1 className="text-xl font-bold text-gray-900">Look-Ahead &amp; Flow</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            DT-AUZ-001 · 48 × PT30M slots · {DT_LIMIT} kW limit · Click a bar to inspect that slot
+            DT-AUZ-001 · Auzances · {DT_LIMIT} kW limit
           </p>
         </div>
-        {result && (
-          <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
-            <Zap className="w-3.5 h-3.5 text-indigo-500" />
-            <span className="text-xs text-indigo-600 font-medium">{result.engine}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2 text-xs flex-shrink-0">
+          <span className="px-2 py-1 rounded border bg-indigo-100 text-indigo-700 border-indigo-200 font-medium">15min · Remedial Action</span>
+          <span className="px-2 py-1 rounded border bg-gray-100 text-gray-500 border-gray-200">1hr · FCA</span>
+          <span className="px-2 py-1 rounded border bg-gray-100 text-gray-500 border-gray-200">Day-ahead · FCA</span>
+        </div>
       </div>
 
       {/* Violation banner */}
@@ -531,7 +563,12 @@ export default function ForecastPage() {
           <>
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={forecastData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }} onClick={handleBarClick} style={{ cursor: 'pointer' }}>
+                <BarChart
+                  data={forecastData.map(d => ({ ...d, baseline: baselineOverlay[d.slot] ?? null }))}
+                  margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                  onClick={handleBarClick}
+                  style={{ cursor: 'pointer' }}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis
                     dataKey="slot"
@@ -553,7 +590,7 @@ export default function ForecastPage() {
                     label={{ value: `${DT_LIMIT} kW limit`, position: 'insideTopRight', fontSize: 9, fill: '#ef4444' }}
                   />
                   <ReferenceLine x={slotIndex} stroke="#818cf8" strokeWidth={2} strokeDasharray="4 2" />
-                  <Bar dataKey="totalLoad" radius={[2, 2, 0, 0]}>
+                  <Bar dataKey="totalLoad" radius={[2, 2, 0, 0]} name="DT Load">
                     {forecastData.map((d) => (
                       <Cell
                         key={d.slot}
@@ -562,13 +599,31 @@ export default function ForecastPage() {
                       />
                     ))}
                   </Bar>
+                  {Object.keys(baselineOverlay).length > 0 && (
+                    <Line
+                      type="monotone"
+                      dataKey="baseline"
+                      name="D4G Baseline (SPG)"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      dot={false}
+                      strokeDasharray="5 3"
+                      connectNulls
+                    />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div className="flex items-center gap-5 mt-2 text-[10px] text-gray-500">
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500/70 rounded-sm inline-block" />Normal</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500 rounded-sm inline-block" />Thermal violation</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-300 rounded-sm inline-block" />Selected slot</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-500/70 rounded-sm inline-block" />DT Load</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500 rounded-sm inline-block" />Violation</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-300 rounded-sm inline-block" />Selected</span>
+              {Object.keys(baselineOverlay).length > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-5 h-0 border-t-2 border-dashed border-emerald-500 inline-block" />
+                  D4G Baseline · Solar SPG
+                </span>
+              )}
             </div>
           </>
         ) : activeView === 'live' ? (
@@ -700,59 +755,74 @@ export default function ForecastPage() {
                 </div>
               </div>
 
-              {/* DER Status */}
+              {/* SPG / DER Status */}
               <div className="border border-gray-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Cpu className="w-4 h-4 text-indigo-500" />
-                  <span className="text-xs font-semibold text-gray-900">DER Enrollment</span>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-indigo-500" />
+                    <span className="text-xs font-semibold text-gray-900">SPG Aggregation — FCA Use Case 02</span>
+                  </div>
+                  <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded font-mono">
+                    Flex Down only
+                  </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="space-y-2 text-xs">
+                  {/* Enrolled */}
+                  <div className="flex items-center gap-2 py-1 border-b border-gray-100">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-gray-800 font-medium">Digital4Grids Solar SPG</div>
+                      <div className="text-[10px] text-gray-400">Aggregated smart inverters · GET /actual-power/ · generation curtailment</div>
+                    </div>
+                    <span className="text-[10px] bg-green-50 text-green-700 border border-green-200 px-1.5 py-0.5 rounded">Active</span>
+                  </div>
+                  {/* Missing DERs from D4G API */}
+                  <div className="text-[10px] text-gray-400 font-medium uppercase tracking-wide pt-1">missing_ders[ ] from /baseline/ API</div>
                   {[
-                    { name: 'Community Solar A', type: 'Solar PV', enrolled: true },
-                    { name: 'Community Solar B', type: 'Solar PV', enrolled: true },
-                    { name: 'Fougères BESS', type: 'Battery', enrolled: true },
-                    { name: 'Bois-Rond Solar Farm', type: 'Solar PV', enrolled: true },
-                    { name: 'Bois-Rond BESS', type: 'Battery', enrolled: true },
-                    { name: 'EV Charger Cluster A', type: 'EV Charger', enrolled: false },
-                    { name: 'Rooftop PV #14', type: 'Solar PV', enrolled: false },
-                  ].map((der) => (
-                    <div key={der.name} className="flex items-center gap-2 py-1">
-                      <div className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', der.enrolled ? 'bg-green-400' : 'bg-gray-300')} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-gray-700 truncate">{der.name}</div>
-                        <div className="text-[10px] text-gray-400">{der.type}</div>
+                    { type: 'dcbel', desc: 'Home energy manager · awaiting D4G configuration' },
+                    { type: 'sns_inverter', desc: 'Smart inverter · awaiting D4G configuration' },
+                  ].map(der => (
+                    <div key={der.type} className="flex items-center gap-2 py-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                      <div className="flex-1">
+                        <div className="text-gray-700 font-mono">{der.type}</div>
+                        <div className="text-[10px] text-gray-400">{der.desc}</div>
                       </div>
-                      {!der.enrolled && <span className="text-[10px] text-gray-400">Not enrolled</span>}
+                      <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded">Missing</span>
                     </div>
                   ))}
                 </div>
                 <div className="mt-2 text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded px-2 py-1">
-                  2 DERs not enrolled — using assumed load profile (avg residential: 0.8 kW/HH peak)
+                  dcbel and sns_inverter appear in missing_ders[ ] — JP &amp; Colin to confirm FCA use case 02 resource group setup
                 </div>
               </div>
 
-              {/* Load Assumptions */}
+              {/* Generation Assumptions */}
               <div className="border border-gray-200 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-2">
                   <Database className="w-4 h-4 text-indigo-500" />
-                  <span className="text-xs font-semibold text-gray-900">Load Assumptions</span>
+                  <span className="text-xs font-semibold text-gray-900">Generation Assumptions</span>
                 </div>
                 <div className="space-y-1.5 text-xs text-gray-600">
                   <div className="flex items-start gap-2">
                     <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span>Enrolled DERs: metered via SPG telemetry channel (PT1M, last-value held)</span>
+                    <span>Solar SPG generation: metered via D4G SPG telemetry · GET /actual-power/ (PT15M)</span>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span>Unenrolled DERs: diurnal load profile scaled to rated capacity</span>
+                    <span>Baseline forecast: aggregator submits 96 × PT15M flex forecast · GET /baseline/</span>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span>Residual load (non-DER): DT head measurement − enrolled SPG sum</span>
+                    <span>Residual load: DT head measurement − SPG generation (top-down subtraction)</span>
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span className="text-gray-400 italic">Smart meter API: not integrated (ENEDIS API pending — Phase 2)</span>
+                    <span>Missing DERs (dcbel, sns_inverter): modelled as zero until D4G RG is configured</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
+                    <span className="text-gray-400 italic">Smart meter integration: pending ENEDIS API access (Phase 2)</span>
                   </div>
                 </div>
               </div>
@@ -932,31 +1002,31 @@ export default function ForecastPage() {
           </div>
 
 
-          {/* Available Flex Program panel */}
+          {/* Available FCA panel */}
           {result.violations.length > 0 && (
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">Available Flex Program</span>
+                    <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">Flexibility Connection Agreement</span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700 border border-green-200">Active</span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-100 text-indigo-600 border border-indigo-200">Remedial Action · 15min</span>
                   </div>
-                  <h3 className="text-sm font-bold text-gray-900 mb-1">EDF Réseau Peak Flex</h3>
+                  <h3 className="text-sm font-bold text-gray-900 mb-1">Auzances Solar SPG — Flex Down</h3>
                   <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs text-gray-600 mb-3">
-                    <div><span className="text-gray-400">Type</span> · Thermal constraint relief</div>
+                    <div><span className="text-gray-400">Type</span> · Generation curtailment (Flex Down)</div>
                     <div><span className="text-gray-400">DT</span> · DT-AUZ-001</div>
-                    <div><span className="text-gray-400">Assets</span> · 3 EV chargers on Branch B</div>
+                    <div><span className="text-gray-400">SPG</span> · Digital4Grids Solar SPG (sns_inverter)</div>
                     <div><span className="text-gray-400">Lead time</span> · 15 min</div>
-                    <div><span className="text-gray-400">Flex capacity</span> · <span className="font-semibold text-gray-800">350 kW curtailable</span></div>
-                    <div><span className="text-gray-400">Price</span> · €85 / MWh</div>
+                    <div><span className="text-gray-400">Flex capacity</span> · <span className="font-semibold text-gray-800">curtailable to OE limit</span></div>
+                    <div><span className="text-gray-400">Settlement</span> · A44 post-period</div>
                   </div>
-                  {/* Projected outcome */}
                   <div className="flex items-center gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-indigo-100">
                     <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
                     <span className="text-gray-600">
-                      Dispatch full curtailment →
-                      <span className="font-semibold text-gray-900 mx-1">DT load: ~{Math.round((result.dt.total_load_kw - 350) * 10) / 10} kW</span>
-                      ({Math.round(((result.dt.total_load_kw - 350) / result.dt.thermal_limit_kw) * 100)}% of limit) · Violation resolved
+                      Curtail Solar SPG to OE limit →
+                      <span className="font-semibold text-gray-900 mx-1">DT within thermal envelope</span>
+                      · A32 ActivationDocument dispatched automatically
                     </span>
                   </div>
                 </div>
@@ -965,13 +1035,7 @@ export default function ForecastPage() {
                     onClick={() => navigate('/oe')}
                     className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-2 rounded-lg font-medium transition-colors"
                   >
-                    Generate OE <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => navigate('/admin/programs')}
-                    className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-600 text-xs px-3 py-2 rounded-lg font-medium border border-gray-200 transition-colors"
-                  >
-                    View Program
+                    View OE <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
