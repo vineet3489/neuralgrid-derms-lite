@@ -451,44 +451,21 @@ export default function ForecastPage() {
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
-      {/* Workflow breadcrumb */}
-      <div className="flex items-center gap-1 text-xs text-gray-500 bg-white border border-gray-200 rounded-lg px-4 py-2">
-        <span className="text-indigo-400 font-medium">Step 1</span>
-        <span className="mx-1.5 text-gray-300">·</span>
-        <span className="font-medium text-gray-900">Look-Ahead &amp; Power Flow</span>
-        <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-400" />
-        <span>Step 2 · OE Dispatch</span>
-        <ChevronRight className="w-3.5 h-3.5 mx-1 text-gray-400" />
-        <span>Step 3 · IEC Messages</span>
-      </div>
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Look-Ahead &amp; Flow</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            DT-AUZ-001 · Auzances · {DT_LIMIT} kW limit
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs flex-shrink-0">
-          <span className="px-2 py-1 rounded border bg-indigo-100 text-indigo-700 border-indigo-200 font-medium">15min · Remedial Action</span>
-          <span className="px-2 py-1 rounded border bg-gray-100 text-gray-500 border-gray-200">1hr · FCA</span>
-          <span className="px-2 py-1 rounded border bg-gray-100 text-gray-500 border-gray-200">Day-ahead · FCA</span>
+          <p className="text-sm text-gray-500 mt-0.5">DT-AUZ-001 · Auzances · {DT_LIMIT} kW limit</p>
         </div>
       </div>
 
       {/* Violation banner */}
       {violations.length > 0 && (
-        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-          <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm text-red-600 font-semibold">
-              Forecast violation — Branch B thermal overload {violations[0].time}–{violations[violations.length - 1].time}
-            </p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Peak {peakSlot.totalLoad.toFixed(0)} kW · {peakSlot.dtPct.toFixed(0)}% of {DT_LIMIT} kW limit · {violations.length} slots in violation
-            </p>
-          </div>
+        <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5">
+          <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <p className="text-sm text-red-600 font-medium">
+            Branch B thermal overload {violations[0].time}–{violations[violations.length - 1].time} · peak {peakSlot.totalLoad.toFixed(0)} kW ({peakSlot.dtPct.toFixed(0)}% of limit)
+          </p>
         </div>
       )}
 
@@ -496,66 +473,26 @@ export default function ForecastPage() {
       <div className="card">
         <div className="flex items-center justify-between mb-3">
           <div>
-            {activeView === 'dayahead' ? (
-              <>
-                <h3 className="text-sm font-semibold text-gray-900">
-                  DT Aggregate Load — 48 × PT30M
-                  {forecastLoading && <span className="ml-2 text-xs text-gray-400 font-normal">Loading…</span>}
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">Click any bar to snap the time slider to that slot</p>
-              </>
-            ) : activeView === 'live' ? (
-              <>
-                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                  Live Load — 60 × PT1M
-                  <span className="flex items-center gap-1 text-[10px] text-green-600 font-semibold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
-                    Live · 1-min
-                  </span>
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Past 30 min (measured) + next 30 min (forecast) · auto-refresh every 60s
-                </p>
-              </>
-            ) : (
-              <>
-                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                  Integrations
-                  <Radio className="w-3.5 h-3.5 text-indigo-500" />
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">D4G connection · DER status · load assumptions</p>
-              </>
-            )}
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              {activeView === 'dayahead' && <>Day-Ahead {forecastLoading && <span className="text-xs text-gray-400 font-normal">Loading…</span>}</>}
+              {activeView === 'live' && <>Live <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block ml-1" /></>}
+              {activeView === 'integrations' && 'Integrations'}
+            </h3>
           </div>
           <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs flex-shrink-0">
-            <button
-              onClick={() => setActiveView('dayahead')}
-              className={clsx(
-                'px-3 py-1.5 font-medium transition-colors',
-                activeView === 'dayahead' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-              )}
-            >
-              Day-Ahead · PT30M
-            </button>
-            <button
-              onClick={() => setActiveView('live')}
-              className={clsx(
-                'px-3 py-1.5 font-medium transition-colors border-l border-gray-200',
-                activeView === 'live' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-              )}
-            >
-              Live · PT1M
-            </button>
-            <button
-              onClick={() => setActiveView('integrations')}
-              className={clsx(
-                'px-3 py-1.5 font-medium transition-colors border-l border-gray-200 flex items-center gap-1',
-                activeView === 'integrations' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-              )}
-            >
-              <Radio className="w-3 h-3" />
-              Integrations
-            </button>
+            {(['dayahead', 'live', 'integrations'] as const).map((v, i) => (
+              <button
+                key={v}
+                onClick={() => setActiveView(v)}
+                className={clsx(
+                  'px-3 py-1.5 font-medium transition-colors',
+                  i > 0 && 'border-l border-gray-200',
+                  activeView === v ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                )}
+              >
+                {v === 'dayahead' ? 'Day-Ahead' : v === 'live' ? 'Live' : 'Integrations'}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -683,25 +620,11 @@ export default function ForecastPage() {
               <span className="text-sm text-gray-500">Loading integration data…</span>
             </div>
           ) : (
-            <div className="space-y-4 pt-1">
-              {/* D4G Scheduler Status */}
-              <div className="border border-gray-200 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Radio className="w-4 h-4 text-indigo-500" />
-                    <span className="text-xs font-semibold text-gray-900">D4G Scheduler</span>
-                  </div>
-                  {schedulerStatus?.next_run_at ? (
-                    <span className="text-[10px] bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded font-medium">
-                      Auto · PT15M
-                    </span>
-                  ) : (
-                    <span className="text-[10px] bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 rounded">
-                      Not configured
-                    </span>
-                  )}
-                </div>
-                <div className="grid grid-cols-3 gap-3 text-xs">
+            <div className="divide-y divide-gray-100">
+              {/* D4G Scheduler */}
+              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
+                <div className="col-span-1 text-gray-400 font-medium pt-0.5">Scheduler</div>
+                <div className="col-span-3 grid grid-cols-3 gap-3">
                   <div>
                     <div className="text-gray-400 mb-0.5">Last run</div>
                     <div className="text-gray-700 font-mono">
@@ -721,154 +644,85 @@ export default function ForecastPage() {
                   <div>
                     <div className="text-gray-400 mb-0.5">Last curtailment</div>
                     <div className="text-gray-700 font-mono">
-                      {schedulerStatus?.last_curtailment_mw != null
-                        ? `${schedulerStatus.last_curtailment_mw} MW`
-                        : '—'}
+                      {schedulerStatus?.last_curtailment_mw != null ? `${schedulerStatus.last_curtailment_mw} MW` : '—'}
                     </div>
                   </div>
                 </div>
-                {schedulerStatus?.resource_group_id && (
-                  <div className="mt-2 text-[10px] text-gray-400 font-mono truncate">
-                    RG: {schedulerStatus.resource_group_id}
-                  </div>
-                )}
               </div>
 
-              {/* D4G Actual Power */}
-              <div className="border border-gray-200 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-indigo-500" />
-                    <span className="text-xs font-semibold text-gray-900">Actual Power (D4G)</span>
-                  </div>
-                  {d4gActualPower?.status === 200 ? (
-                    <span className="text-[10px] bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded font-medium">Online</span>
-                  ) : (
-                    <span className="text-[10px] bg-amber-100 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">No data</span>
-                  )}
-                </div>
-                <div className="text-2xl font-bold text-gray-900 mb-1">
-                  {d4gActualPower?.actual_power_kw != null ? `${d4gActualPower.actual_power_kw} kW` : '—'}
-                </div>
-                <div className="text-[10px] text-gray-400">
-                  Latest PT15M reading · {(d4gActualPower?.readings?.length ?? 0)} device{d4gActualPower?.readings?.length !== 1 ? 's' : ''} reporting
-                </div>
-              </div>
-
-              {/* SPG / DER Status */}
-              <div className="border border-gray-200 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Cpu className="w-4 h-4 text-indigo-500" />
-                    <span className="text-xs font-semibold text-gray-900">SPG Aggregation — FCA Use Case 02</span>
-                  </div>
-                  <span className="text-[10px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded font-mono">
-                    Flex Down only
+              {/* Actual Power */}
+              <div className="py-3 grid grid-cols-4 gap-4 text-xs items-center">
+                <div className="col-span-1 text-gray-400 font-medium">Actual Power</div>
+                <div className="col-span-3 flex items-baseline gap-3">
+                  <span className="text-lg font-semibold text-gray-900">
+                    {d4gActualPower?.actual_power_kw != null ? `${d4gActualPower.actual_power_kw} kW` : '—'}
                   </span>
-                </div>
-                <div className="space-y-2 text-xs">
-                  {/* Enrolled */}
-                  <div className="flex items-center gap-2 py-1 border-b border-gray-100">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-gray-800 font-medium">Digital4Grids Solar SPG</div>
-                      <div className="text-[10px] text-gray-400">Aggregated smart inverters · GET /actual-power/ · generation curtailment</div>
-                    </div>
-                    <span className="text-[10px] bg-green-50 text-green-700 border border-green-200 px-1.5 py-0.5 rounded">Active</span>
-                  </div>
-                  {/* Missing DERs from D4G API */}
-                  <div className="text-[10px] text-gray-400 font-medium uppercase tracking-wide pt-1">missing_ders[ ] from /baseline/ API</div>
-                  {[
-                    { type: 'dcbel', desc: 'Home energy manager · awaiting D4G configuration' },
-                    { type: 'sns_inverter', desc: 'Smart inverter · awaiting D4G configuration' },
-                  ].map(der => (
-                    <div key={der.type} className="flex items-center gap-2 py-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                      <div className="flex-1">
-                        <div className="text-gray-700 font-mono">{der.type}</div>
-                        <div className="text-[10px] text-gray-400">{der.desc}</div>
-                      </div>
-                      <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded">Missing</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-2 text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded px-2 py-1">
-                  dcbel and sns_inverter appear in missing_ders[ ] — JP &amp; Colin to confirm FCA use case 02 resource group setup
+                  <span className="text-gray-400">Solar SPG · PT15M</span>
                 </div>
               </div>
 
-              {/* Generation Assumptions */}
-              <div className="border border-gray-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Database className="w-4 h-4 text-indigo-500" />
-                  <span className="text-xs font-semibold text-gray-900">Generation Assumptions</span>
-                </div>
-                <div className="space-y-1.5 text-xs text-gray-600">
-                  <div className="flex items-start gap-2">
-                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span>Solar SPG generation: metered via D4G SPG telemetry · GET /actual-power/ (PT15M)</span>
+              {/* SPG / DER */}
+              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
+                <div className="col-span-1 text-gray-400 font-medium pt-0.5">SPG — FCA 02</div>
+                <div className="col-span-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
+                    <span className="text-gray-800 font-medium">Digital4Grids Solar SPG</span>
+                    <span className="text-gray-400">· Flex Down · generation curtailment</span>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span>Baseline forecast: aggregator submits 96 × PT15M flex forecast · GET /baseline/</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
+                    <span className="text-gray-500 font-mono">dcbel</span>
+                    <span className="text-gray-400">· missing from resource group</span>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span>Residual load: DT head measurement − SPG generation (top-down subtraction)</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span>Missing DERs (dcbel, sns_inverter): modelled as zero until D4G RG is configured</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
-                    <span className="text-gray-400 italic">Smart meter integration: pending ENEDIS API access (Phase 2)</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
+                    <span className="text-gray-500 font-mono">sns_inverter</span>
+                    <span className="text-gray-400">· missing from resource group</span>
                   </div>
                 </div>
               </div>
 
-              {/* Baseline from D4G */}
-              {d4gBaseline?.point_count > 0 && (
-                <div className="border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-gray-900">Aggregator Baseline (D4G)</span>
-                    <span className="text-[10px] text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded font-mono">
-                      {d4gBaseline.point_count} × PT15M
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-gray-500">
-                    Resource group: <span className="font-mono">{d4gBaseline.resource_group_id?.slice(0, 20)}…</span>
-                  </div>
+              {/* Baseline */}
+              <div className="py-3 grid grid-cols-4 gap-4 text-xs items-center">
+                <div className="col-span-1 text-gray-400 font-medium">Baseline</div>
+                <div className="col-span-3 text-gray-600">
+                  {d4gBaseline?.point_count > 0
+                    ? <>{d4gBaseline.point_count} × PT15M from aggregator · shown on chart above</>
+                    : <span className="text-gray-400">Configure D4G credentials in Settings to load</span>}
                 </div>
-              )}
+              </div>
+
+              {/* Assumptions */}
+              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
+                <div className="col-span-1 text-gray-400 font-medium pt-0.5">Assumptions</div>
+                <div className="col-span-3 space-y-1 text-gray-500">
+                  <div>SPG metered via D4G telemetry · residual = DT head − SPG generation</div>
+                  <div>dcbel + sns_inverter modelled as zero until resource group is configured</div>
+                  <div className="text-gray-400">Smart meter API: pending (Phase 2)</div>
+                </div>
+              </div>
             </div>
           )
         )}
       </div>
 
-      {/* Power flow controls + auto-scheduler status */}
+      {/* Slot inspector */}
       <div ref={controlsRef} className="card">
         <div className="flex items-center gap-6">
-          <div className="flex-shrink-0">
-            <div className="text-xs text-gray-500 mb-0.5">DT</div>
-            <div className="text-sm font-semibold text-gray-900">{DEMO_DT.name}</div>
-            <div className="text-xs text-gray-500">{DEMO_DT.thermal_limit_kw} kW limit · 65 HH</div>
+          <div className="flex-shrink-0 text-xs text-gray-500">
+            {DEMO_DT.name} · {DEMO_DT.thermal_limit_kw} kW
           </div>
-
           <div className="flex-1">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs text-gray-500">Inspect slot</span>
+              <span className="text-xs text-gray-400">Slot</span>
               <span className="text-sm font-semibold text-gray-900 font-mono">{slotToTime(slotIndex)}</span>
             </div>
             <input
-              type="range"
-              min={0}
-              max={47}
-              value={slotIndex}
+              type="range" min={0} max={47} value={slotIndex}
               onChange={(e) => {
                 const s = Number(e.target.value)
                 setSlotIndex(s)
-                const ev = s >= 36 && s < 44
                 setResult(solveFrontend(s))
                 setRanSlot(s)
               }}
@@ -878,18 +732,12 @@ export default function ForecastPage() {
               <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:30</span>
             </div>
           </div>
-
-          <div className="flex-shrink-0 text-right">
-            <div className="flex items-center gap-1.5 text-xs text-indigo-600 font-medium mb-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-              Auto · PT15M
+          <div className="flex-shrink-0 text-xs text-gray-400 text-right">
+            <div className="flex items-center gap-1 justify-end mb-0.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+              <span className="text-indigo-600 font-medium">Auto · PT15M</span>
             </div>
-            <div className="text-[10px] text-gray-400">
-              Power flow runs every 15 min
-            </div>
-            <div className="text-[10px] text-gray-400">
-              OE dispatched to D4G automatically
-            </div>
+            OE to D4G every 15 min
           </div>
         </div>
       </div>
