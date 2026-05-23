@@ -7,8 +7,9 @@ import {
 import {
   DEMO_DT, LV_BRANCHES_DEMO,
 } from '../data/auzanceNetwork'
-import { AlertTriangle, CheckCircle, ChevronRight, Loader2, Zap } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ChevronRight, Loader2, Zap, Radio, Cpu, Database } from 'lucide-react'
 import clsx from 'clsx'
+import { api } from '../api/client'
 
 // ─── LinDistFlow constants ────────────────────────────────────────────────────
 
@@ -274,7 +275,7 @@ export default function ForecastPage() {
   const location = useLocation()
   const navState = location.state as { slot?: number; dtId?: string } | null
 
-  const [activeView, setActiveView] = useState<'dayahead' | 'live'>('dayahead')
+  const [activeView, setActiveView] = useState<'dayahead' | 'live' | 'integrations'>('dayahead')
   const [slotIndex, setSlotIndex] = useState<number>(() => navState?.slot ?? defaultSlot())
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<PowerFlowResult | null>(null)
@@ -283,6 +284,12 @@ export default function ForecastPage() {
   const [forecastLoading, setForecastLoading] = useState(false)
   const [liveData, setLiveData] = useState<LiveMinSlot[]>(() => buildLiveMinutes())
 
+  // D4G scheduler state
+  const [schedulerStatus, setSchedulerStatus] = useState<any>(null)
+  const [d4gBaseline, setD4gBaseline] = useState<any>(null)
+  const [d4gActualPower, setD4gActualPower] = useState<any>(null)
+  const [integrationsLoading, setIntegrationsLoading] = useState(false)
+
   const controlsRef = useRef<HTMLDivElement>(null)
 
   // Refresh live 1-min data every 60s
@@ -290,6 +297,55 @@ export default function ForecastPage() {
     const id = setInterval(() => setLiveData(buildLiveMinutes()), 60_000)
     return () => clearInterval(id)
   }, [])
+
+  // Auto-run power flow on mount (for current slot)
+  useEffect(() => {
+    const autoRun = async () => {
+      setRunning(true)
+      try {
+        const ev = defaultSlot() >= 36 && defaultSlot() < 44
+        const url = `${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/powsybl-power-flow?ev_surge=${ev}`
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}` } })
+        if (res.ok) {
+          const data = await res.json()
+          setResult({ ...data, engine: 'DistFlow' })
+          setRanSlot(slotIndex)
+        } else {
+          setResult(solveFrontend(slotIndex))
+          setRanSlot(slotIndex)
+        }
+      } catch {
+        setResult(solveFrontend(slotIndex))
+        setRanSlot(slotIndex)
+      }
+      setRunning(false)
+    }
+    autoRun()
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch scheduler status & integrations data when Integrations tab opens
+  useEffect(() => {
+    if (activeView !== 'integrations') return
+    setIntegrationsLoading(true)
+    Promise.all([
+      api.d4gSchedulerStatus().catch(() => null),
+      api.d4gBaseline().catch(() => null),
+      api.d4gActualPower().catch(() => null),
+    ]).then(([sched, baseline, actual]) => {
+      if (sched) setSchedulerStatus(sched.data)
+      if (baseline) setD4gBaseline(baseline.data)
+      if (actual) setD4gActualPower(actual.data)
+    }).finally(() => setIntegrationsLoading(false))
+  }, [activeView])
+
+  // Poll scheduler status every 30s when integrations tab is open
+  useEffect(() => {
+    if (activeView !== 'integrations') return
+    const id = setInterval(() => {
+      api.d4gSchedulerStatus().then(r => setSchedulerStatus(r.data)).catch(() => {})
+    }, 30_000)
+    return () => clearInterval(id)
+  }, [activeView])
 
   useEffect(() => {
     setForecastLoading(true)
@@ -416,7 +472,7 @@ export default function ForecastPage() {
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">Click any bar to snap the time slider to that slot</p>
               </>
-            ) : (
+            ) : activeView === 'live' ? (
               <>
                 <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
                   Live Load — 60 × PT1M
@@ -428,6 +484,14 @@ export default function ForecastPage() {
                 <p className="text-xs text-gray-500 mt-0.5">
                   Past 30 min (measured) + next 30 min (forecast) · auto-refresh every 60s
                 </p>
+              </>
+            ) : (
+              <>
+                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  Integrations
+                  <Radio className="w-3.5 h-3.5 text-indigo-500" />
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">D4G connection · DER status · load assumptions</p>
               </>
             )}
           </div>
@@ -449,6 +513,16 @@ export default function ForecastPage() {
               )}
             >
               Live · PT1M
+            </button>
+            <button
+              onClick={() => setActiveView('integrations')}
+              className={clsx(
+                'px-3 py-1.5 font-medium transition-colors border-l border-gray-200 flex items-center gap-1',
+                activeView === 'integrations' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+              )}
+            >
+              <Radio className="w-3 h-3" />
+              Integrations
             </button>
           </div>
         </div>
@@ -497,7 +571,7 @@ export default function ForecastPage() {
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-indigo-300 rounded-sm inline-block" />Selected slot</span>
             </div>
           </>
-        ) : (
+        ) : activeView === 'live' ? (
           <>
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
@@ -546,65 +620,215 @@ export default function ForecastPage() {
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-red-500 rounded-sm inline-block" />Thermal violation</span>
             </div>
           </>
+        ) : (
+          /* ── Integrations tab ─────────────────────────────────────────────── */
+          integrationsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-indigo-400 mr-2" />
+              <span className="text-sm text-gray-500">Loading integration data…</span>
+            </div>
+          ) : (
+            <div className="space-y-4 pt-1">
+              {/* D4G Scheduler Status */}
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-indigo-500" />
+                    <span className="text-xs font-semibold text-gray-900">D4G Scheduler</span>
+                  </div>
+                  {schedulerStatus?.next_run_at ? (
+                    <span className="text-[10px] bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded font-medium">
+                      Auto · PT15M
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 rounded">
+                      Not configured
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <div className="text-gray-400 mb-0.5">Last run</div>
+                    <div className="text-gray-700 font-mono">
+                      {schedulerStatus?.last_run_at
+                        ? new Date(schedulerStatus.last_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400 mb-0.5">Next run</div>
+                    <div className="text-gray-700 font-mono">
+                      {schedulerStatus?.next_run_at
+                        ? new Date(schedulerStatus.next_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400 mb-0.5">Last curtailment</div>
+                    <div className="text-gray-700 font-mono">
+                      {schedulerStatus?.last_curtailment_mw != null
+                        ? `${schedulerStatus.last_curtailment_mw} MW`
+                        : '—'}
+                    </div>
+                  </div>
+                </div>
+                {schedulerStatus?.resource_group_id && (
+                  <div className="mt-2 text-[10px] text-gray-400 font-mono truncate">
+                    RG: {schedulerStatus.resource_group_id}
+                  </div>
+                )}
+              </div>
+
+              {/* D4G Actual Power */}
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-indigo-500" />
+                    <span className="text-xs font-semibold text-gray-900">Actual Power (D4G)</span>
+                  </div>
+                  {d4gActualPower?.status === 200 ? (
+                    <span className="text-[10px] bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded font-medium">Online</span>
+                  ) : (
+                    <span className="text-[10px] bg-amber-100 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">No data</span>
+                  )}
+                </div>
+                <div className="text-2xl font-bold text-gray-900 mb-1">
+                  {d4gActualPower?.actual_power_kw != null ? `${d4gActualPower.actual_power_kw} kW` : '—'}
+                </div>
+                <div className="text-[10px] text-gray-400">
+                  Latest PT15M reading · {(d4gActualPower?.readings?.length ?? 0)} device{d4gActualPower?.readings?.length !== 1 ? 's' : ''} reporting
+                </div>
+              </div>
+
+              {/* DER Status */}
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Cpu className="w-4 h-4 text-indigo-500" />
+                  <span className="text-xs font-semibold text-gray-900">DER Enrollment</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {[
+                    { name: 'Community Solar A', type: 'Solar PV', enrolled: true },
+                    { name: 'Community Solar B', type: 'Solar PV', enrolled: true },
+                    { name: 'Fougères BESS', type: 'Battery', enrolled: true },
+                    { name: 'Bois-Rond Solar Farm', type: 'Solar PV', enrolled: true },
+                    { name: 'Bois-Rond BESS', type: 'Battery', enrolled: true },
+                    { name: 'EV Charger Cluster A', type: 'EV Charger', enrolled: false },
+                    { name: 'Rooftop PV #14', type: 'Solar PV', enrolled: false },
+                  ].map((der) => (
+                    <div key={der.name} className="flex items-center gap-2 py-1">
+                      <div className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', der.enrolled ? 'bg-green-400' : 'bg-gray-300')} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-gray-700 truncate">{der.name}</div>
+                        <div className="text-[10px] text-gray-400">{der.type}</div>
+                      </div>
+                      {!der.enrolled && <span className="text-[10px] text-gray-400">Not enrolled</span>}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+                  2 DERs not enrolled — using assumed load profile (avg residential: 0.8 kW/HH peak)
+                </div>
+              </div>
+
+              {/* Load Assumptions */}
+              <div className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Database className="w-4 h-4 text-indigo-500" />
+                  <span className="text-xs font-semibold text-gray-900">Load Assumptions</span>
+                </div>
+                <div className="space-y-1.5 text-xs text-gray-600">
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
+                    <span>Enrolled DERs: metered via SPG telemetry channel (PT1M, last-value held)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
+                    <span>Unenrolled DERs: diurnal load profile scaled to rated capacity</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
+                    <span>Residual load (non-DER): DT head measurement − enrolled SPG sum</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-400 flex-shrink-0 mt-0.5">→</span>
+                    <span className="text-gray-400 italic">Smart meter API: not integrated (ENEDIS API pending — Phase 2)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Baseline from D4G */}
+              {d4gBaseline?.point_count > 0 && (
+                <div className="border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-gray-900">Aggregator Baseline (D4G)</span>
+                    <span className="text-[10px] text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded font-mono">
+                      {d4gBaseline.point_count} × PT15M
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-gray-500">
+                    Resource group: <span className="font-mono">{d4gBaseline.resource_group_id?.slice(0, 20)}…</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
         )}
       </div>
 
-      {/* Power flow controls */}
-      <div ref={controlsRef} className="card flex items-center gap-6">
-        <div className="flex-shrink-0">
-          <div className="text-xs text-gray-500 mb-0.5">DT</div>
-          <div className="text-sm font-semibold text-gray-900">{DEMO_DT.name}</div>
-          <div className="text-xs text-gray-500">{DEMO_DT.thermal_limit_kw} kW limit · 65 HH</div>
-        </div>
-
-        <div className="flex-1">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-gray-500">Time of day</span>
-            <span className="text-sm font-semibold text-gray-900 font-mono">{slotToTime(slotIndex)}</span>
+      {/* Power flow controls + auto-scheduler status */}
+      <div ref={controlsRef} className="card">
+        <div className="flex items-center gap-6">
+          <div className="flex-shrink-0">
+            <div className="text-xs text-gray-500 mb-0.5">DT</div>
+            <div className="text-sm font-semibold text-gray-900">{DEMO_DT.name}</div>
+            <div className="text-xs text-gray-500">{DEMO_DT.thermal_limit_kw} kW limit · 65 HH</div>
           </div>
-          <input
-            type="range"
-            min={0}
-            max={47}
-            value={slotIndex}
-            onChange={(e) => { setSlotIndex(Number(e.target.value)); setResult(null); setRanSlot(null) }}
-            className="w-full accent-indigo-500 cursor-pointer"
-          />
-          <div className="flex justify-between text-[9px] text-gray-400 mt-0.5">
-            <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:30</span>
+
+          <div className="flex-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-gray-500">Inspect slot</span>
+              <span className="text-sm font-semibold text-gray-900 font-mono">{slotToTime(slotIndex)}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={47}
+              value={slotIndex}
+              onChange={(e) => {
+                const s = Number(e.target.value)
+                setSlotIndex(s)
+                const ev = s >= 36 && s < 44
+                setResult(solveFrontend(s))
+                setRanSlot(s)
+              }}
+              className="w-full accent-indigo-500 cursor-pointer"
+            />
+            <div className="flex justify-between text-[9px] text-gray-400 mt-0.5">
+              <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:30</span>
+            </div>
+          </div>
+
+          <div className="flex-shrink-0 text-right">
+            <div className="flex items-center gap-1.5 text-xs text-indigo-600 font-medium mb-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+              Auto · PT15M
+            </div>
+            <div className="text-[10px] text-gray-400">
+              Power flow runs every 15 min
+            </div>
+            <div className="text-[10px] text-gray-400">
+              OE dispatched to D4G automatically
+            </div>
           </div>
         </div>
-
-        <button
-          onClick={runPowerFlow}
-          disabled={running || alreadyRan}
-          className={clsx(
-            'flex items-center gap-2 flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-            alreadyRan
-              ? 'bg-green-100 text-green-700 border border-green-200 cursor-default'
-              : 'btn-primary'
-          )}
-        >
-          {running && <Loader2 className="w-4 h-4 animate-spin" />}
-          {alreadyRan && <CheckCircle className="w-4 h-4" />}
-          {running ? 'Solving…' : alreadyRan ? `✓ ${slotToTime(slotIndex)}` : `Run Power Flow · ${slotToTime(slotIndex)}`}
-        </button>
       </div>
 
       {/* Running state */}
       {running && (
-        <div className="card flex flex-col items-center justify-center py-10 text-gray-500">
-          <Loader2 className="w-7 h-7 animate-spin mb-3 text-indigo-400" />
-          <p className="text-sm font-medium">Running power flow…</p>
-          <p className="text-xs text-gray-400 mt-1">{slotToTime(slotIndex)} · 250 kVA · 3 branches</p>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!result && !running && (
-        <div className="card flex flex-col items-center justify-center py-10 text-gray-500">
-          <Zap className="w-7 h-7 mb-3 text-gray-400" />
-          <p className="text-sm">Click a bar or move the slider, then <strong className="text-gray-700">Run Power Flow</strong></p>
+        <div className="card flex items-center justify-center py-6 gap-3 text-gray-500">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+          <span className="text-sm">Running power flow…</span>
         </div>
       )}
 

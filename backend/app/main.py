@@ -47,6 +47,9 @@ async def start_background_tasks() -> None:
     from app.lv_network.background import dynamic_oe_loop
     asyncio.create_task(dynamic_oe_loop(), name="dynamic_oe_loop")
 
+    from app.lv_network.d4g_scheduler import d4g_scheduler_loop
+    asyncio.create_task(d4g_scheduler_loop(), name="d4g_scheduler")
+
     from app.aggregator.kafka_transport import start_telemetry_consumer, kafka_enabled
     if kafka_enabled():
         from app.database import AsyncSessionLocal

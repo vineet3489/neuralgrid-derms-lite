@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time as _time
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -35,6 +36,7 @@ router = APIRouter(prefix="/api/v1/lv-network", tags=["lv-network"])
 _d4g_runtime: dict = {
     "d4g_api_url": "https://demo.d4g.local/oe",
     "d4g_api_key": "d4g-demo-api-key-2026",
+    "resource_group_id": "",
 }
 
 _DEMO_D4G_URL = "https://demo.d4g.local/oe"
@@ -504,10 +506,12 @@ async def get_d4g_config(current_user: CurrentUserDep = None) -> dict:
     from app.config import settings
     url = _d4g_runtime.get("d4g_api_url") or settings.d4g_api_url
     key = _d4g_runtime.get("d4g_api_key") or settings.d4g_api_key
+    rg  = _d4g_runtime.get("resource_group_id") or os.environ.get("D4G_RESOURCE_GROUP_ID", "")
     source = "runtime" if _d4g_runtime.get("d4g_api_url") else ("env" if settings.d4g_api_url else "demo")
     return {
         "d4g_api_url": url,
         "d4g_api_key_hint": (key[:8] + "…" + key[-4:]) if len(key) > 12 else ("set" if key else ""),
+        "resource_group_id": rg,
         "is_demo": url == _DEMO_D4G_URL,
         "source": source,
     }
@@ -521,10 +525,13 @@ async def update_d4g_config(
     """Update D4G endpoint at runtime (no restart needed). Admin only."""
     url = payload.get("d4g_api_url", "").strip()
     key = payload.get("d4g_api_key", "").strip()
+    rg  = payload.get("resource_group_id", "").strip()
     if url:
         _d4g_runtime["d4g_api_url"] = url
     if key:
         _d4g_runtime["d4g_api_key"] = key
+    if rg:
+        _d4g_runtime["resource_group_id"] = rg
     return {"saved": True, "is_demo": _d4g_runtime.get("d4g_api_url") == _DEMO_D4G_URL}
 
 
@@ -757,3 +764,113 @@ async def get_live_measurements(
         "assets": enrolled_assets,
         "note": "residual_load = DT_head_measurement − enrolled_spg_sum (top-down subtraction)",
     }
+
+
+# ---------------------------------------------------------------------------
+# D4G proxy endpoints — frontend calls these instead of D4G directly
+# ---------------------------------------------------------------------------
+
+_D4G_LIVE_BASE = "https://lnt.digital4grids.com"
+
+
+@router.get("/d4g/scheduler-status")
+async def d4g_scheduler_status(current_user: CurrentUserDep = None) -> dict:
+    """Return current state of the 15-min D4G scheduler."""
+    from app.lv_network.d4g_scheduler import _scheduler_state
+    return _scheduler_state
+
+
+@router.get("/d4g/baseline")
+async def d4g_baseline_proxy(current_user: CurrentUserDep = None) -> dict:
+    """
+    Proxy GET /v1/baseline/{resource_group_id} from D4G.
+    Returns 96 × PT15M flex forecast points.
+    """
+    import httpx
+    key = _d4g_runtime.get("d4g_api_key") or os.environ.get("D4G_API_KEY", "")
+    rg  = _d4g_runtime.get("resource_group_id") or os.environ.get("D4G_RESOURCE_GROUP_ID", "")
+    if not key or not rg:
+        return {"error": "D4G credentials not configured", "points": []}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{_D4G_LIVE_BASE}/v1/baseline/{rg}",
+                headers={"x-api-key": key},
+            )
+            data = resp.json() if resp.status_code == 200 else {}
+            points = data if isinstance(data, list) else data.get("data", data.get("points", []))
+            return {
+                "resource_group_id": rg,
+                "status": resp.status_code,
+                "point_count": len(points) if isinstance(points, list) else 0,
+                "points": points,
+            }
+    except Exception as exc:
+        return {"error": str(exc)[:200], "points": []}
+
+
+@router.get("/d4g/actual-power")
+async def d4g_actual_power_proxy(current_user: CurrentUserDep = None) -> dict:
+    """
+    Proxy GET /v1/actual-power/{resource_group_id}/energy from D4G.
+    Returns latest energy reading.
+    """
+    import httpx
+    key = _d4g_runtime.get("d4g_api_key") or os.environ.get("D4G_API_KEY", "")
+    rg  = _d4g_runtime.get("resource_group_id") or os.environ.get("D4G_RESOURCE_GROUP_ID", "")
+    if not key or not rg:
+        return {"error": "D4G credentials not configured", "readings": []}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{_D4G_LIVE_BASE}/v1/actual-power/{rg}/energy",
+                headers={"x-api-key": key},
+            )
+            data = resp.json() if resp.status_code == 200 else {}
+            readings = data if isinstance(data, list) else data.get("data", [data] if isinstance(data, dict) else [])
+            # Compute kW from first reading (kWh per PT15M × 4)
+            actual_kw = None
+            if readings:
+                try:
+                    actual_kw = round(float(readings[0].get("quantity", 0)) * 4, 2)
+                except Exception:
+                    pass
+            return {
+                "resource_group_id": rg,
+                "status": resp.status_code,
+                "actual_power_kw": actual_kw,
+                "readings": readings,
+            }
+    except Exception as exc:
+        return {"error": str(exc)[:200], "readings": []}
+
+
+@router.post("/d4g/activate")
+async def d4g_activate_proxy(
+    doc: dict = Body(..., description="ActivationDocument to forward to D4G"),
+    current_user: CurrentUserDep = None,
+) -> dict:
+    """Forward an A32 ActivationDocument to D4G /v1/activation."""
+    import httpx
+    key = _d4g_runtime.get("d4g_api_key") or os.environ.get("D4G_API_KEY", "")
+    if not key:
+        return {"sent": False, "message": "D4G API key not configured"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{_D4G_LIVE_BASE}/v1/activation",
+                json=doc,
+                headers={"x-api-key": key, "Content-Type": "application/json"},
+            )
+            ack = {}
+            try:
+                ack = resp.json()
+            except Exception:
+                pass
+            return {
+                "sent": resp.status_code in (200, 201, 202),
+                "d4g_status": resp.status_code,
+                "ack": ack,
+            }
+    except Exception as exc:
+        return {"sent": False, "message": str(exc)[:200]}

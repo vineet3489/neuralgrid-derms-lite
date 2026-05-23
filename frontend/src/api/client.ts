@@ -202,6 +202,12 @@ export const api = {
   sendOEtoD4G: (doc: unknown) =>
     apiClient.post('/lv-network/send-oe', doc),
 
+  // D4G 15-min scheduler
+  d4gSchedulerStatus: () => apiClient.get('/lv-network/d4g/scheduler-status'),
+  d4gBaseline: () => apiClient.get('/lv-network/d4g/baseline'),
+  d4gActualPower: () => apiClient.get('/lv-network/d4g/actual-power'),
+  d4gActivate: (doc: unknown) => apiClient.post('/lv-network/d4g/activate', doc),
+
   // CIM aggregator — IEC 62325 + IEC 62746-4
   cimProtocols: () => apiClient.get('/aggregator/cim/protocols'),
   cimCapability: (data: unknown) => apiClient.post('/aggregator/cim/capability', data),

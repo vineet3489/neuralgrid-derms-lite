@@ -16,6 +16,7 @@ export default function SettingsPage() {
   // ── D4G Connection ─────────────────────────────────────────────────────────
   const [d4gUrl, setD4gUrl] = useState(DEMO_D4G_URL)
   const [d4gKey, setD4gKey] = useState('d4g-demo-api-key-2026')
+  const [d4gResourceGroup, setD4gResourceGroup] = useState('')
   const [d4gSaving, setD4gSaving] = useState(false)
   const [d4gMsg, setD4gMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [d4gIsDemo, setD4gIsDemo] = useState(true)
@@ -39,6 +40,7 @@ export default function SettingsPage() {
       .then(cfg => {
         if (cfg.d4g_api_url) setD4gUrl(cfg.d4g_api_url)
         if (cfg.is_demo !== undefined) setD4gIsDemo(cfg.is_demo)
+        if (cfg.resource_group_id) setD4gResourceGroup(cfg.resource_group_id)
       })
       .catch(() => {})
 
@@ -64,7 +66,7 @@ export default function SettingsPage() {
       const r = await fetch(`${apiBase}/api/v1/lv-network/d4g-config`, {
         method: 'PUT',
         headers: { ...authHeader, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ d4g_api_url: d4gUrl, d4g_api_key: d4gKey }),
+        body: JSON.stringify({ d4g_api_url: d4gUrl, d4g_api_key: d4gKey, resource_group_id: d4gResourceGroup }),
       })
       const result = await r.json()
       const isDemo = d4gUrl === DEMO_D4G_URL
@@ -123,7 +125,7 @@ export default function SettingsPage() {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Endpoint URL</label>
             <input
@@ -131,11 +133,11 @@ export default function SettingsPage() {
               value={d4gUrl}
               onChange={e => setD4gUrl(e.target.value)}
               className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-1.5 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-              placeholder="https://api.digital4grids.eu/oe/submit"
+              placeholder="https://lnt.digital4grids.com"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Bearer API Key</label>
+            <label className="block text-xs text-gray-500 mb-1">API Key</label>
             <input
               type="password"
               value={d4gKey}
@@ -144,6 +146,17 @@ export default function SettingsPage() {
               placeholder="your-d4g-api-key"
             />
           </div>
+        </div>
+        <div className="mb-4">
+          <label className="block text-xs text-gray-500 mb-1">Resource Group ID</label>
+          <input
+            type="text"
+            value={d4gResourceGroup}
+            onChange={e => setD4gResourceGroup(e.target.value)}
+            className="w-full bg-white border border-gray-300 text-gray-900 px-3 py-1.5 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+            placeholder="f70396e2-4698-4bdf-92d6-a99e159409fa"
+          />
+          <p className="text-[10px] text-gray-400 mt-1">Used for baseline fetch, actual power reading, and activation dispatch every 15 min.</p>
         </div>
 
         <div className="flex items-center gap-3">

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { DISTRIBUTION_TRANSFORMERS } from '../data/auzanceNetwork'
 import {
   AlertTriangle, CheckCircle, Copy, ChevronDown, ChevronUp,
-  Loader2, Send, Cpu, RefreshCw, TrendingDown, Activity, Zap,
+  Loader2, Send, Cpu, RefreshCw, TrendingDown, Activity, Zap, Radio,
 } from 'lucide-react'
 import clsx from 'clsx'
 import {
@@ -205,6 +205,26 @@ export default function OperatingEnvelopePage() {
   const [secondsAgo, setSecondsAgo] = useState(0)
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // D4G scheduler status
+  const [schedulerStatus, setSchedulerStatus] = useState<any>(null)
+
+  // Auto-load OE on mount
+  useEffect(() => {
+    if (selectedDtId === 'DT-AUZ-001') {
+      handleGenerateAndSend()
+    }
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch D4G scheduler status on mount and every 30s
+  useEffect(() => {
+    const fetchStatus = () => {
+      api.d4gSchedulerStatus().then(r => setSchedulerStatus(r.data)).catch(() => {})
+    }
+    fetchStatus()
+    const id = setInterval(fetchStatus, 30_000)
+    return () => clearInterval(id)
+  }, [])
+
   // Countdown ticker
   useEffect(() => {
     const id = setInterval(() => {
@@ -355,8 +375,8 @@ export default function OperatingEnvelopePage() {
 
       {/* Controls */}
       <div className="card">
-        <div className="grid grid-cols-2 gap-4 items-end">
-          <div>
+        <div className="flex items-end gap-4">
+          <div className="flex-1">
             <label className="block text-xs text-gray-500 mb-1.5">Distribution Transformer</label>
             <select
               value={selectedDtId}
@@ -364,7 +384,7 @@ export default function OperatingEnvelopePage() {
                 const newDtId = e.target.value
                 setSelectedDtId(newDtId)
                 localStorage.setItem('lite_selected_dt', newDtId)
-                setPfConfirmed(!!localStorage.getItem(`powerFlowConfirmed_${newDtId}`))
+                setPfConfirmed(true)
                 setOeDoc(null)
                 setOePoints([])
                 setOeError(null)
@@ -376,52 +396,50 @@ export default function OperatingEnvelopePage() {
                 <option key={dt.id} value={dt.id}>{dt.id} — {dt.name}</option>
               ))}
             </select>
-            <p className="text-[11px] text-gray-500 mt-1.5">Today's Operating Envelope · {today}</p>
+            <p className="text-[11px] text-gray-500 mt-1">Today's OE · {today}</p>
           </div>
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={handleGenerateAndSend}
-              disabled={!pfConfirmed || oeLoading || sending || sentBanner !== null}
-              title={!pfConfirmed ? 'Run Power Flow on Look-Ahead first to confirm violations' : undefined}
-              className={clsx(
-                'flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-medium transition-colors',
-                sentBanner !== null
-                  ? 'bg-green-100 text-green-700 border border-green-200 cursor-default'
-                  : !pfConfirmed
-                  ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
-                  : 'btn-primary'
-              )}
-            >
-              {(oeLoading || sending)
-                ? <><Loader2 className="w-4 h-4 animate-spin" />{oeLoading ? 'Computing…' : 'Sending…'}</>
-                : sentBanner !== null
-                  ? <><CheckCircle className="w-4 h-4" />A38 Sent</>
-                  : <><Send className="w-4 h-4" />Generate &amp; Send A38</>
-              }
-            </button>
-            {!pfConfirmed && (
-              <p className="text-[11px] text-gray-400 text-center">
-                <button onClick={() => navigate('/lookahead', { state: { dtId: selectedDtId } })} className="text-indigo-500 hover:underline">
-                  Run Power Flow
-                </button>
-                {' '}first to unlock
-              </p>
-            )}
-            {sentBanner !== null && (
-              <button
-                onClick={() => { setOeDoc(null); setOePoints([]); setOeError(null); setSentBanner(null) }}
-                className="flex items-center justify-center gap-1.5 h-7 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg"
-              >
-                <RefreshCw className="w-3 h-3" /> Regenerate
-              </button>
-            )}
-          </div>
+          <button
+            onClick={handleGenerateAndSend}
+            disabled={oeLoading || sending}
+            className="flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-medium btn-secondary flex-shrink-0"
+          >
+            {(oeLoading || sending)
+              ? <><Loader2 className="w-4 h-4 animate-spin" />{oeLoading ? 'Computing…' : 'Sending…'}</>
+              : <><RefreshCw className="w-4 h-4" />Refresh OE</>
+            }
+          </button>
         </div>
         {oeError && <p className="text-xs text-amber-500 mt-2">{oeError}</p>}
-        {pfConfirmed && (
-          <p className="text-[11px] text-gray-400 mt-2">
-            OE limits auto-refresh every 60s from live SPG measurements once generated.
-          </p>
+      </div>
+
+      {/* D4G Scheduler status */}
+      <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-100 rounded-lg px-4 py-3">
+        <div className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+          <Radio className="w-3.5 h-3.5 text-indigo-500" />
+          <span className="text-xs font-semibold text-indigo-700">Auto · PT15M</span>
+        </div>
+        <div className="flex-1 text-xs text-indigo-600">
+          Power flow runs every 15 min · OE dispatched to D4G automatically
+        </div>
+        {schedulerStatus?.last_activation_at && (
+          <div className="text-xs text-indigo-500 flex-shrink-0">
+            Last sent:{' '}
+            <span className="font-mono">
+              {new Date(schedulerStatus.last_activation_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+            {schedulerStatus.last_curtailment_mw != null && (
+              <span className="ml-2 font-mono">{schedulerStatus.last_curtailment_mw} MW</span>
+            )}
+          </div>
+        )}
+        {schedulerStatus?.next_run_at && (
+          <div className="text-xs text-gray-500 flex-shrink-0">
+            Next:{' '}
+            <span className="font-mono text-indigo-600">
+              {new Date(schedulerStatus.next_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
         )}
       </div>
 
@@ -430,10 +448,7 @@ export default function OperatingEnvelopePage() {
       {sentBanner && (
         <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{sentBanner.text}</span>
-          {sentBanner.isDemo && (
-            <span className="ml-2 text-[10px] bg-amber-100 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded font-bold">DEMO</span>
-          )}
+          <span className="text-xs">{sentBanner.text}</span>
         </div>
       )}
 
