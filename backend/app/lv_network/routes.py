@@ -899,36 +899,37 @@ async def d4g_quick_activate(
     slot_start = now.replace(second=0, microsecond=0) + timedelta(minutes=minutes - now.minute)
     slot_end   = slot_start + timedelta(minutes=duration_min)
 
-    doc_mrid  = str(uuid.uuid4())
-    instr_mrid = str(uuid.uuid4())
+    doc_mrid   = str(uuid.uuid4())
+    ts_mrid    = str(uuid.uuid4())
+    fmt        = "%Y-%m-%dT%H:%M:%S.000+00:00"
 
+    # Flat structure matching D4G /v1/activation spec (IEC 62325 A32)
     activation_doc = {
-        "ActivationDocument": {
-            "mRID": doc_mrid,
-            "type": "A32",
-            "createdDateTime": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "sender_MarketParticipant": {"mRID": "17XTESTLNTDSO01T"},
-            "receiver_MarketParticipant": {"mRID": "17XTESTD4GRID02T"},
-            "FlexibilityInformation_MarketEvaluationPoint": [
-                {
-                    "mRID": rg,
-                    "flowDirection": "A02",
-                    "Instruction": [
-                        {
-                            "mRID": instr_mrid,
-                            "Period": {
-                                "timeInterval": {
-                                    "start": slot_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                                    "end":   slot_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                                },
-                                "resolution": "PT15M",
-                                "Point": [{"position": 1, "quantity": round(curtailment_mw, 4)}],
-                            },
-                        }
-                    ],
-                }
-            ],
-        }
+        "mRID": doc_mrid,
+        "type": "A32",
+        "businessType": "B83",
+        "createdDateTime": now.strftime(fmt),
+        "flowDirection": [{"direction": "A02"}],  # A02 = reduce production (Flex Down)
+        "SenderMarketParticipant": {
+            "mRID": "17XTESTLNT0S0017",
+            "MarketRole": {"roleType": "A84"},
+        },
+        "ReceiverMarketParticipant": {"mRID": "17XTESTD4GRI002T"},
+        "TimeSeries": [
+            {
+                "mRID": ts_mrid,
+                "marketEvaluationPoint.mRID": rg,
+                "flowDirection": "A02",
+                "TimeInterval": {
+                    "start": slot_start.strftime(fmt),
+                    "end":   slot_end.strftime(fmt),
+                },
+                "Period": {
+                    "resolution": "PT15M",
+                    "Point": [{"position": 1, "quantity": round(curtailment_mw, 4)}],
+                },
+            }
+        ],
     }
 
     try:
