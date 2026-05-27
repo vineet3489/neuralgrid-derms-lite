@@ -778,6 +778,13 @@ def _d4g_key_rg() -> tuple[str, str]:
     return key, rg
 
 
+def _d4g_eics() -> tuple[str, str]:
+    """Return (sender_eic, receiver_eic) from env vars, falling back to test EICs."""
+    sender   = os.environ.get("D4G_SENDER_EIC",   "17XTESTLNT0S0017")
+    receiver = os.environ.get("D4G_RECEIVER_EIC", "17XTESTD4GRI002T")
+    return sender, receiver
+
+
 @router.get("/d4g/scheduler-status")
 async def d4g_scheduler_status(current_user: CurrentUserDep = None) -> dict:
     """Return current state of the 15-min D4G scheduler."""
@@ -899,9 +906,10 @@ async def d4g_quick_activate(
     slot_start = now.replace(second=0, microsecond=0) + timedelta(minutes=minutes - now.minute)
     slot_end   = slot_start + timedelta(minutes=duration_min)
 
-    doc_mrid   = str(uuid.uuid4())
-    ts_mrid    = str(uuid.uuid4())
-    fmt        = "%Y-%m-%dT%H:%M:%S.000+00:00"
+    doc_mrid          = str(uuid.uuid4())
+    ts_mrid           = str(uuid.uuid4())
+    fmt               = "%Y-%m-%dT%H:%M:%S.000+00:00"
+    sender_eic, recv_eic = _d4g_eics()
 
     # Flat structure matching D4G /v1/activation spec (IEC 62325 A32)
     activation_doc = {
@@ -911,10 +919,10 @@ async def d4g_quick_activate(
         "createdDateTime": now.strftime(fmt),
         "flowDirection": [{"direction": "A02"}],  # A02 = reduce production (Flex Down)
         "SenderMarketParticipant": {
-            "mRID": "17XTESTLNT0S0017",
+            "mRID": sender_eic,
             "MarketRole": {"roleType": "A84"},
         },
-        "ReceiverMarketParticipant": {"mRID": "17XTESTD4GRI002T"},
+        "ReceiverMarketParticipant": {"mRID": recv_eic},
         "TimeSeries": [
             {
                 "mRID": ts_mrid,
@@ -951,6 +959,8 @@ async def d4g_quick_activate(
                 "slot_start": slot_start.isoformat(),
                 "slot_end": slot_end.isoformat(),
                 "doc_mrid": doc_mrid,
+                "sender_eic": sender_eic,
+                "receiver_eic": recv_eic,
                 "ack": ack,
                 "sent_at": now.isoformat(),
             }
