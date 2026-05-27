@@ -31,15 +31,16 @@ from app.lv_network.service import (
 
 router = APIRouter(prefix="/api/v1/lv-network", tags=["lv-network"])
 
-# Runtime-overridable D4G config (survives until process restart; overrides env vars)
-# Seed with demo defaults so the UI always shows a configurable endpoint
+# Runtime-overridable D4G config (survives until process restart)
+# Empty by default so env vars (D4G_API_KEY, D4G_RESOURCE_GROUP_ID) always win.
 _d4g_runtime: dict = {
-    "d4g_api_url": "https://demo.d4g.local/oe",
-    "d4g_api_key": "d4g-demo-api-key-2026",
+    "d4g_api_url": "",
+    "d4g_api_key": "",
     "resource_group_id": "",
 }
 
-_DEMO_D4G_URL = "https://demo.d4g.local/oe"
+_DEMO_D4G_URL  = "https://demo.d4g.local/oe"
+_D4G_LIVE_BASE = "https://lnt.digital4grids.com"
 
 # ---------------------------------------------------------------------------
 # Alarms store (in-memory; resets on restart)
@@ -770,7 +771,11 @@ async def get_live_measurements(
 # D4G proxy endpoints — frontend calls these instead of D4G directly
 # ---------------------------------------------------------------------------
 
-_D4G_LIVE_BASE = "https://lnt.digital4grids.com"
+def _d4g_key_rg() -> tuple[str, str]:
+    """Return (api_key, resource_group_id) from runtime overrides or env vars."""
+    key = _d4g_runtime.get("d4g_api_key") or os.environ.get("D4G_API_KEY", "")
+    rg  = _d4g_runtime.get("resource_group_id") or os.environ.get("D4G_RESOURCE_GROUP_ID", "")
+    return key, rg
 
 
 @router.get("/d4g/scheduler-status")
@@ -781,58 +786,79 @@ async def d4g_scheduler_status(current_user: CurrentUserDep = None) -> dict:
 
 
 @router.get("/d4g/baseline")
-async def d4g_baseline_proxy(current_user: CurrentUserDep = None) -> dict:
+async def d4g_baseline_proxy(
+    window: str = Query("24h", description="Forecast window: 1h or 24h"),
+    direction: str = Query("A02", description="A01=upward flex, A02=downward flex (curtailment)"),
+    current_user: CurrentUserDep = None,
+) -> dict:
     """
-    Proxy GET /v1/baseline/{resource_group_id} from D4G.
-    Returns 96 × PT15M flex forecast points.
+    Proxy GET /v1/baseline/{resource_group_id}?window=&direction= from D4G.
+    Returns flex availability forecast (downward flex = Solar SPG curtailment headroom).
     """
     import httpx
-    key = _d4g_runtime.get("d4g_api_key") or os.environ.get("D4G_API_KEY", "")
-    rg  = _d4g_runtime.get("resource_group_id") or os.environ.get("D4G_RESOURCE_GROUP_ID", "")
+    key, rg = _d4g_key_rg()
     if not key or not rg:
-        return {"error": "D4G credentials not configured", "points": []}
+        return {"error": "D4G credentials not configured", "points": [], "configured": False}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 f"{_D4G_LIVE_BASE}/v1/baseline/{rg}",
+                params={"window": window, "direction": direction},
                 headers={"x-api-key": key},
             )
+            raw = resp.text
             data = resp.json() if resp.status_code == 200 else {}
-            points = data if isinstance(data, list) else data.get("data", data.get("points", []))
+            # Response may be a list or {data: [...], metadata: {...}}
+            points = data if isinstance(data, list) else (
+                data.get("data") or data.get("time_series") or data.get("points") or []
+            )
+            metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
             return {
                 "resource_group_id": rg,
                 "status": resp.status_code,
+                "window": window,
+                "direction": direction,
                 "point_count": len(points) if isinstance(points, list) else 0,
                 "points": points,
+                "metadata": metadata,
+                "configured": True,
             }
     except Exception as exc:
-        return {"error": str(exc)[:200], "points": []}
+        return {"error": str(exc)[:200], "points": [], "configured": True}
 
 
 @router.get("/d4g/actual-power")
-async def d4g_actual_power_proxy(current_user: CurrentUserDep = None) -> dict:
+async def d4g_actual_power_proxy(
+    window: str = Query("latest", description="Window: latest, 1h, 24h"),
+    resolution: str = Query("15m", description="Resolution: 1m, 5m, 15m"),
+    power_unit: str = Query("kW", description="Unit: W or kW"),
+    current_user: CurrentUserDep = None,
+) -> dict:
     """
-    Proxy GET /v1/actual-power/{resource_group_id}/energy from D4G.
-    Returns latest energy reading.
+    Proxy GET /v1/actual-power/{resource_group_id}/active-power from D4G.
+    Returns real-time SPG generation (kW).
     """
     import httpx
-    key = _d4g_runtime.get("d4g_api_key") or os.environ.get("D4G_API_KEY", "")
-    rg  = _d4g_runtime.get("resource_group_id") or os.environ.get("D4G_RESOURCE_GROUP_ID", "")
+    key, rg = _d4g_key_rg()
     if not key or not rg:
-        return {"error": "D4G credentials not configured", "readings": []}
+        return {"error": "D4G credentials not configured", "readings": [], "configured": False}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
-                f"{_D4G_LIVE_BASE}/v1/actual-power/{rg}/energy",
+                f"{_D4G_LIVE_BASE}/v1/actual-power/{rg}/active-power",
+                params={"window": window, "resolution": resolution, "power_unit": power_unit},
                 headers={"x-api-key": key},
             )
             data = resp.json() if resp.status_code == 200 else {}
-            readings = data if isinstance(data, list) else data.get("data", [data] if isinstance(data, dict) else [])
-            # Compute kW from first reading (kWh per PT15M × 4)
+            # Response: {data: [{timestamp, quantity, unit}, ...], metadata: {der_count, missing_ders}}
+            readings = data.get("data") or (data if isinstance(data, list) else [])
+            metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
+            # Latest kW reading
             actual_kw = None
             if readings:
                 try:
-                    actual_kw = round(float(readings[0].get("quantity", 0)) * 4, 2)
+                    latest = readings[-1] if isinstance(readings, list) else readings
+                    actual_kw = round(float(latest.get("quantity", 0)), 2)
                 except Exception:
                     pass
             return {
@@ -840,19 +866,105 @@ async def d4g_actual_power_proxy(current_user: CurrentUserDep = None) -> dict:
                 "status": resp.status_code,
                 "actual_power_kw": actual_kw,
                 "readings": readings,
+                "metadata": metadata,
+                "configured": True,
             }
     except Exception as exc:
-        return {"error": str(exc)[:200], "readings": []}
+        return {"error": str(exc)[:200], "readings": [], "configured": True}
+
+
+@router.post("/d4g/quick-activate")
+async def d4g_quick_activate(
+    payload: dict = Body(..., description='{"curtailment_mw": 0.01, "duration_minutes": 15}'),
+    current_user: CurrentUserDep = None,
+) -> dict:
+    """
+    Build an A32 ActivationDocument from a simple curtailment amount and POST to D4G.
+    curtailment_mw: delta reduction in MW (e.g. 0.01 = 10 kW reduction).
+    FlowDirection A02 = reduce production (Solar SPG Flex Down).
+    """
+    import httpx, uuid
+    from datetime import datetime, timedelta, timezone
+
+    key, rg = _d4g_key_rg()
+    if not key or not rg:
+        return {"sent": False, "message": "D4G credentials not configured"}
+
+    curtailment_mw = float(payload.get("curtailment_mw", 0.01))
+    duration_min   = int(payload.get("duration_minutes", 15))
+
+    now       = datetime.now(timezone.utc)
+    # Round up to next 15-min boundary
+    minutes   = (now.minute // 15 + 1) * 15
+    slot_start = now.replace(second=0, microsecond=0) + timedelta(minutes=minutes - now.minute)
+    slot_end   = slot_start + timedelta(minutes=duration_min)
+
+    doc_mrid  = str(uuid.uuid4())
+    instr_mrid = str(uuid.uuid4())
+
+    activation_doc = {
+        "ActivationDocument": {
+            "mRID": doc_mrid,
+            "type": "A32",
+            "createdDateTime": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "sender_MarketParticipant": {"mRID": "17XTESTLNTDSO01T"},
+            "receiver_MarketParticipant": {"mRID": "17XTESTD4GRID02T"},
+            "FlexibilityInformation_MarketEvaluationPoint": [
+                {
+                    "mRID": rg,
+                    "flowDirection": "A02",
+                    "Instruction": [
+                        {
+                            "mRID": instr_mrid,
+                            "Period": {
+                                "timeInterval": {
+                                    "start": slot_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                    "end":   slot_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                },
+                                "resolution": "PT15M",
+                                "Point": [{"position": 1, "quantity": round(curtailment_mw, 4)}],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{_D4G_LIVE_BASE}/v1/activation",
+                json=activation_doc,
+                headers={"x-api-key": key, "Content-Type": "application/json"},
+            )
+            ack = {}
+            try:
+                ack = resp.json()
+            except Exception:
+                pass
+            return {
+                "sent": resp.status_code in (200, 201, 202),
+                "d4g_status": resp.status_code,
+                "curtailment_mw": curtailment_mw,
+                "slot_start": slot_start.isoformat(),
+                "slot_end": slot_end.isoformat(),
+                "doc_mrid": doc_mrid,
+                "ack": ack,
+                "sent_at": now.isoformat(),
+            }
+    except Exception as exc:
+        return {"sent": False, "message": str(exc)[:200], "doc_mrid": doc_mrid}
 
 
 @router.post("/d4g/activate")
 async def d4g_activate_proxy(
-    doc: dict = Body(..., description="ActivationDocument to forward to D4G"),
+    doc: dict = Body(..., description="Full ActivationDocument to forward to D4G"),
     current_user: CurrentUserDep = None,
 ) -> dict:
-    """Forward an A32 ActivationDocument to D4G /v1/activation."""
+    """Forward a pre-built A32 ActivationDocument to D4G /v1/activation."""
     import httpx
-    key = _d4g_runtime.get("d4g_api_key") or os.environ.get("D4G_API_KEY", "")
+    key, _ = _d4g_key_rg()
     if not key:
         return {"sent": False, "message": "D4G API key not configured"}
     try:
