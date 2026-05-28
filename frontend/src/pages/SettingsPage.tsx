@@ -3,6 +3,9 @@ import { CheckCircle, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 
 const DEMO_D4G_URL = 'https://demo.d4g.local/oe'
+const PROD_D4G_URL = 'https://lnt.digital4grids.com'
+const PROD_D4G_KEY = '8d20a511-af9e-4f81-a682-2c0dc2c62124'
+const PROD_D4G_RG  = 'f70396e2-4698-4bdf-92d6-a99e159409fa'
 
 interface IECEndpoint {
   label: string
@@ -14,12 +17,12 @@ interface IECEndpoint {
 
 export default function SettingsPage() {
   // ── D4G Connection ─────────────────────────────────────────────────────────
-  const [d4gUrl, setD4gUrl] = useState(DEMO_D4G_URL)
-  const [d4gKey, setD4gKey] = useState('d4g-demo-api-key-2026')
-  const [d4gResourceGroup, setD4gResourceGroup] = useState('')
+  const [d4gUrl, setD4gUrl] = useState(PROD_D4G_URL)
+  const [d4gKey, setD4gKey] = useState(PROD_D4G_KEY)
+  const [d4gResourceGroup, setD4gResourceGroup] = useState(PROD_D4G_RG)
   const [d4gSaving, setD4gSaving] = useState(false)
   const [d4gMsg, setD4gMsg] = useState<{ text: string; ok: boolean } | null>(null)
-  const [d4gIsDemo, setD4gIsDemo] = useState(true)
+  const [d4gIsDemo, setD4gIsDemo] = useState(false)
 
   // ── IEC Message Endpoints ──────────────────────────────────────────────────
   const [iecEndpoints, setIecEndpoints] = useState<Record<string, IECEndpoint>>({
@@ -71,7 +74,7 @@ export default function SettingsPage() {
       const result = await r.json()
       const isDemo = d4gUrl === DEMO_D4G_URL
       setD4gIsDemo(isDemo)
-      setD4gMsg({ text: isDemo ? 'Demo mode active' : 'Live endpoint saved', ok: true })
+      setD4gMsg({ text: isDemo ? 'Demo mode active' : 'Live — D4G connected', ok: true })
     } catch {
       setD4gMsg({ text: 'Save failed — check backend connection', ok: false })
     } finally {
@@ -169,7 +172,7 @@ export default function SettingsPage() {
             Save & Activate
           </button>
           <button
-            onClick={() => { setD4gUrl(DEMO_D4G_URL); setD4gKey('d4g-demo-api-key-2026') }}
+            onClick={() => { setD4gUrl(DEMO_D4G_URL); setD4gKey('d4g-demo-api-key-2026'); setD4gResourceGroup('') }}
             className="text-xs text-gray-500 hover:text-gray-700 underline"
           >
             Reset to demo

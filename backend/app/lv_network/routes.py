@@ -32,11 +32,15 @@ from app.lv_network.service import (
 router = APIRouter(prefix="/api/v1/lv-network", tags=["lv-network"])
 
 # Runtime-overridable D4G config (survives until process restart)
-# Empty by default so env vars (D4G_API_KEY, D4G_RESOURCE_GROUP_ID) always win.
+# Production credentials baked in as defaults; env vars override if set.
+_D4G_DEFAULT_KEY = "8d20a511-af9e-4f81-a682-2c0dc2c62124"
+_D4G_DEFAULT_RG  = "f70396e2-4698-4bdf-92d6-a99e159409fa"
+_D4G_DEFAULT_EIC = "17XTESTD4GSO01T"   # sender EIC for FCA demo
+
 _d4g_runtime: dict = {
-    "d4g_api_url": "",
-    "d4g_api_key": "",
-    "resource_group_id": "",
+    "d4g_api_url":      "https://lnt.digital4grids.com",
+    "d4g_api_key":      _D4G_DEFAULT_KEY,
+    "resource_group_id": _D4G_DEFAULT_RG,
 }
 
 _DEMO_D4G_URL  = "https://demo.d4g.local/oe"
@@ -779,9 +783,9 @@ def _d4g_key_rg() -> tuple[str, str]:
 
 
 def _d4g_eics() -> tuple[str, str]:
-    """Return (sender_eic, receiver_eic) from env vars, falling back to test EICs."""
-    sender   = os.environ.get("D4G_SENDER_EIC",   "17XTESTLNT0S0017")
-    receiver = os.environ.get("D4G_RECEIVER_EIC", "17XTESTD4GRI002T")
+    """Return (sender_eic, receiver_eic) from env vars, falling back to FCA demo EICs."""
+    sender   = os.environ.get("D4G_SENDER_EIC",   _D4G_DEFAULT_EIC)
+    receiver = os.environ.get("D4G_RECEIVER_EIC", "17XTESTD4GSO01T")
     return sender, receiver
 
 
@@ -842,8 +846,8 @@ async def d4g_actual_power_proxy(
     current_user: CurrentUserDep = None,
 ) -> dict:
     """
-    Proxy GET /v1/actual-power/{resource_group_id}/active-power from D4G.
-    Returns real-time SPG generation (kW).
+    Proxy GET /v1/actual-power/{resource_group_id}/energy from D4G.
+    Returns aggregated real-time SPG generation. Requests kW explicitly.
     """
     import httpx
     key, rg = _d4g_key_rg()
@@ -852,7 +856,7 @@ async def d4g_actual_power_proxy(
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
-                f"{_D4G_LIVE_BASE}/v1/actual-power/{rg}/active-power",
+                f"{_D4G_LIVE_BASE}/v1/actual-power/{rg}/energy",
                 params={"window": window, "resolution": resolution, "power_unit": power_unit},
                 headers={"x-api-key": key},
             )
