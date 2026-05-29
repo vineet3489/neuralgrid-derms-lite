@@ -651,45 +651,85 @@ export default function ForecastPage() {
               </div>
 
               {/* Actual Power */}
-              <div className="py-3 grid grid-cols-4 gap-4 text-xs items-center">
-                <div className="col-span-1 text-gray-400 font-medium">Actual Power</div>
-                <div className="col-span-3 flex items-baseline gap-3">
-                  <span className="text-lg font-semibold text-gray-900">
-                    {d4gActualPower?.actual_power_kw != null ? `${d4gActualPower.actual_power_kw} kW` : '—'}
-                  </span>
-                  <span className="text-gray-400">Solar SPG · PT15M</span>
-                </div>
-              </div>
-
-              {/* SPG / DER */}
               <div className="py-3 grid grid-cols-4 gap-4 text-xs">
-                <div className="col-span-1 text-gray-400 font-medium pt-0.5">SPG — FCA 02</div>
-                <div className="col-span-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
-                    <span className="text-gray-800 font-medium">Digital4Grids Solar SPG</span>
-                    <span className="text-gray-400">· Flex Down · generation curtailment</span>
+                <div className="col-span-1 text-gray-400 font-medium pt-0.5">Actual Power</div>
+                <div className="col-span-3 space-y-1">
+                  <div className="flex items-baseline gap-3">
+                    <span className={clsx('text-lg font-semibold', d4gActualPower?.actual_power_kw != null ? 'text-gray-900' : 'text-gray-400')}>
+                      {d4gActualPower?.actual_power_kw != null ? `${d4gActualPower.actual_power_kw} kW` : '—'}
+                    </span>
+                    <span className="text-gray-400">Solar SPG generation · latest PT15M slot</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
-                    <span className="text-gray-500 font-mono">dcbel</span>
-                    <span className="text-gray-400">· missing from resource group</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" />
-                    <span className="text-gray-500 font-mono">sns_inverter</span>
-                    <span className="text-gray-400">· missing from resource group</span>
-                  </div>
+                  {d4gActualPower?.interval_start && (
+                    <div className="text-gray-400 font-mono">
+                      slot {new Date(d4gActualPower.interval_start).toISOString().slice(11, 16)} UTC
+                      {d4gActualPower.total_der_count != null && (
+                        <span className="ml-2">
+                          · {d4gActualPower.total_der_count - (d4gActualPower.missing_der_count ?? 0)}/{d4gActualPower.total_der_count} DERs reporting
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {d4gActualPower?.missing_der_count > 0 && (
+                    <div className="text-amber-600">
+                      {d4gActualPower.missing_der_count} DER{d4gActualPower.missing_der_count > 1 ? 's' : ''} missing — D4G flagged as incomplete (known issue)
+                    </div>
+                  )}
+                  {d4gActualPower?.error && (
+                    <div className="text-red-500">{d4gActualPower.error}</div>
+                  )}
                 </div>
               </div>
 
               {/* Baseline */}
-              <div className="py-3 grid grid-cols-4 gap-4 text-xs items-center">
-                <div className="col-span-1 text-gray-400 font-medium">Baseline</div>
-                <div className="col-span-3 text-gray-600">
-                  {d4gBaseline?.point_count > 0
-                    ? <>{d4gBaseline.point_count} × PT15M from aggregator · shown on chart above</>
-                    : <span className="text-gray-400">Configure D4G credentials in Settings to load</span>}
+              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
+                <div className="col-span-1 text-gray-400 font-medium pt-0.5">Baseline</div>
+                <div className="col-span-3 space-y-1">
+                  {d4gBaseline?.point_count > 0 ? (
+                    <>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-gray-900 font-semibold">{d4gBaseline.point_count} × PT15M</span>
+                        <span className="text-gray-400">from D4G aggregator</span>
+                        {d4gBaseline.points?.filter((p: any) => p.kw > 0).length > 0
+                          ? <span className="text-emerald-600">· shown on chart above</span>
+                          : <span className="text-gray-400">· all zeros (nighttime / no solar now)</span>}
+                      </div>
+                      {d4gBaseline.interval_start && (
+                        <div className="text-gray-400 font-mono">
+                          {new Date(d4gBaseline.interval_start).toISOString().slice(0, 16).replace('T', ' ')} UTC
+                          → +24 h
+                        </div>
+                      )}
+                      {d4gBaseline.metadata?.missing_der_count > 0 && (
+                        <div className="text-amber-600">
+                          {d4gBaseline.metadata.missing_der_count} DERs missing from baseline
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-red-500">
+                      {d4gBaseline?.error ?? 'No baseline returned — check D4G credentials'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* DER roster */}
+              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
+                <div className="col-span-1 text-gray-400 font-medium pt-0.5">DER roster</div>
+                <div className="col-span-3 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                    <span className="text-gray-700">FCA use case 02 — {d4gActualPower?.metadata?.resource_group_name ?? 'Solar SPG'}</span>
+                    <span className="text-gray-400">· {d4gActualPower?.total_der_count ?? 7} DERs total</span>
+                  </div>
+                  {(d4gActualPower?.metadata?.missing_ders ?? []).map((der: any) => (
+                    <div key={der.der_id} className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                      <span className="text-gray-400 font-mono text-[10px]">{der.name}</span>
+                      <span className="text-gray-400">· no data</span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -698,7 +738,7 @@ export default function ForecastPage() {
                 <div className="col-span-1 text-gray-400 font-medium pt-0.5">Assumptions</div>
                 <div className="col-span-3 space-y-1 text-gray-500">
                   <div>SPG metered via D4G telemetry · residual = DT head − SPG generation</div>
-                  <div>dcbel + sns_inverter modelled as zero until resource group is configured</div>
+                  <div>Missing DERs modelled as zero (D4G known issue — some devices erroneously flagged)</div>
                   <div className="text-gray-400">Smart meter API: pending (Phase 2)</div>
                 </div>
               </div>

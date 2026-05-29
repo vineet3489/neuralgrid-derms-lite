@@ -803,10 +803,12 @@ async def d4g_baseline_proxy(
     current_user: CurrentUserDep = None,
 ) -> dict:
     """
-    Proxy GET /v1/baseline/{resource_group_id}?window=&direction= from D4G.
-    Returns flex availability forecast (downward flex = Solar SPG curtailment headroom).
+    Proxy GET /v1/baseline/{resource_group_id} from D4G.
+    Parses IEC CIM ReferenceEnergyCurveBaselineNotification_MarketDocument.
+    Returns 96 × PT15M points with kWh quantities and interval start timestamps.
     """
     import httpx
+    from datetime import datetime, timedelta, timezone
     key, rg = _d4g_key_rg()
     if not key or not rg:
         return {"error": "D4G credentials not configured", "points": [], "configured": False}
@@ -814,22 +816,46 @@ async def d4g_baseline_proxy(
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 f"{_D4G_LIVE_BASE}/v1/baseline/{rg}",
-                params={"window": window, "direction": direction},
                 headers={"x-api-key": key},
             )
-            raw = resp.text
             data = resp.json() if resp.status_code == 200 else {}
-            # Response may be a list or {data: [...], metadata: {...}}
-            points = data if isinstance(data, list) else (
-                data.get("data") or data.get("time_series") or data.get("points") or []
-            )
-            metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
+            metadata = data.get("metadata", {})
+
+            # Navigate IEC CIM nested path
+            points_raw: list = []
+            interval_start: str = ""
+            resolution: str = "PT15M"
+            try:
+                doc = data["ReferenceEnergyCurveBaselineNotification_MarketDocument"]
+                series0 = doc["Series"][0]["Series"][0]
+                period  = series0["Period"][0]
+                interval_start = period["timeInterval"]["start"]
+                resolution     = period.get("resolution", "PT15M")
+                points_raw     = period["Point"]
+            except (KeyError, IndexError, TypeError):
+                pass
+
+            # Build normalised list: {position, timestamp_utc, kwh, kw}
+            # Timestamps derived from interval_start + (position-1) × 15 min
+            points = []
+            try:
+                t0 = datetime.fromisoformat(interval_start.replace("Z", "+00:00"))
+            except Exception:
+                t0 = datetime.now(timezone.utc)
+
+            for p in points_raw:
+                pos   = int(p.get("position", 0))
+                kwh   = float(p.get("Baseline_Quantity", {}).get("quantity", 0))
+                kw    = round(kwh * 4, 4)   # kWh per PT15M → average kW
+                ts    = (t0 + timedelta(minutes=(pos - 1) * 15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                points.append({"position": pos, "timestamp_utc": ts, "kwh": kwh, "kw": kw})
+
             return {
                 "resource_group_id": rg,
                 "status": resp.status_code,
-                "window": window,
-                "direction": direction,
-                "point_count": len(points) if isinstance(points, list) else 0,
+                "interval_start": interval_start,
+                "resolution": resolution,
+                "point_count": len(points),
                 "points": points,
                 "metadata": metadata,
                 "configured": True,
@@ -847,7 +873,8 @@ async def d4g_actual_power_proxy(
 ) -> dict:
     """
     Proxy GET /v1/actual-power/{resource_group_id}/energy from D4G.
-    Returns aggregated real-time SPG generation. Requests kW explicitly.
+    Parses IEC CIM ReferenceEnergyCurveHistoricalData_MarketDocument.
+    Returns kW (converted from kWh per PT15M × 4), timestamp, and DER metadata.
     """
     import httpx
     key, rg = _d4g_key_rg()
@@ -857,25 +884,40 @@ async def d4g_actual_power_proxy(
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{_D4G_LIVE_BASE}/v1/actual-power/{rg}/energy",
-                params={"window": window, "resolution": resolution, "power_unit": power_unit},
+                params={"window": window, "resolution": resolution, "power_unit": "kW"},
                 headers={"x-api-key": key},
             )
             data = resp.json() if resp.status_code == 200 else {}
-            # Response: {data: [{timestamp, quantity, unit}, ...], metadata: {der_count, missing_ders}}
-            readings = data.get("data") or (data if isinstance(data, list) else [])
-            metadata = data.get("metadata", {}) if isinstance(data, dict) else {}
-            # Latest kW reading
-            actual_kw = None
-            if readings:
-                try:
-                    latest = readings[-1] if isinstance(readings, list) else readings
-                    actual_kw = round(float(latest.get("quantity", 0)), 2)
-                except Exception:
-                    pass
+            metadata = data.get("metadata", {})
+
+            # Navigate IEC CIM nested path
+            points_raw: list = []
+            interval_start: str = ""
+            try:
+                doc    = data["ReferenceEnergyCurveHistoricalData_MarketDocument"]
+                series = doc["Series"][0]["Series"][0]
+                period = series["Period"][0]
+                interval_start = period["timeInterval"]["start"]
+                points_raw     = period["Point"]
+            except (KeyError, IndexError, TypeError):
+                pass
+
+            # Build normalised readings
+            readings = []
+            for p in points_raw:
+                kwh = float(p.get("Historical_Quantity", {}).get("quantity", 0))
+                kw  = round(kwh * 4, 3)   # kWh per PT15M → average kW
+                readings.append({"position": p.get("position"), "kwh": kwh, "kw": kw})
+
+            actual_kw = readings[-1]["kw"] if readings else None
+
             return {
                 "resource_group_id": rg,
                 "status": resp.status_code,
+                "interval_start": interval_start,
                 "actual_power_kw": actual_kw,
+                "total_der_count": metadata.get("total_der_count"),
+                "missing_der_count": metadata.get("missing_der_count"),
                 "readings": readings,
                 "metadata": metadata,
                 "configured": True,
