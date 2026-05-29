@@ -300,19 +300,28 @@ export default function ForecastPage() {
     return () => clearInterval(id)
   }, [])
 
+  // Fetch D4G actual power + baseline on mount (used by DER panel + chart overlay)
+  useEffect(() => {
+    api.d4gActualPower().then(r => { if (r.data) setD4gActualPower(r.data) }).catch(() => {})
+  }, [])
+
   // Fetch D4G baseline on mount to populate chart overlay
   useEffect(() => {
     api.d4gBaseline().then(r => {
-      const pts: any[] = r.data?.points ?? []
+      if (!r.data) return
+      setD4gBaseline(r.data)
+      // pts is [{position, timestamp_utc, kwh, kw}, ...] — 96 × PT15M
+      // Pair adjacent slots (2 × PT15M = 1 × PT30M) for the 48-slot chart
+      const pts: any[] = r.data.points ?? []
       if (pts.length >= 2) {
         const overlay: Record<number, number> = {}
         for (let i = 0; i < 48; i++) {
-          const a = parseFloat(pts[i * 2]?.['Baseline_Quantity.quantity'] ?? pts[i * 2]?.quantity ?? 0)
-          const b = parseFloat(pts[i * 2 + 1]?.['Baseline_Quantity.quantity'] ?? pts[i * 2 + 1]?.quantity ?? 0)
-          overlay[i] = Math.round(((a + b) / 2) * 4 * 10) / 10
+          const a = pts[i * 2]?.kw ?? 0
+          const b = pts[i * 2 + 1]?.kw ?? 0
+          const avg = (a + b) / 2
+          if (avg > 0) overlay[i] = Math.round(avg * 10) / 10
         }
         setBaselineOverlay(overlay)
-        setD4gBaseline(r.data)
       }
     }).catch(() => {})
   }, [])
@@ -342,33 +351,14 @@ export default function ForecastPage() {
     autoRun()
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch scheduler status & integrations data when Integrations tab opens
+  // Fetch scheduler status when Integrations tab opens (baseline + actual already loaded on mount)
   useEffect(() => {
     if (activeView !== 'integrations') return
     setIntegrationsLoading(true)
-    Promise.all([
-      api.d4gSchedulerStatus().catch(() => null),
-      api.d4gBaseline().catch(() => null),
-      api.d4gActualPower().catch(() => null),
-    ]).then(([sched, baseline, actual]) => {
-      if (sched) setSchedulerStatus(sched.data)
-      if (baseline) {
-        setD4gBaseline(baseline.data)
-        // Map 96 × PT15M points → 48 PT30M slots for chart overlay
-        // D4G baseline is in kWh per PT15M; ×4 → avg kW; pair up adjacent points
-        const pts: any[] = baseline.data?.points ?? []
-        if (pts.length >= 2) {
-          const overlay: Record<number, number> = {}
-          for (let i = 0; i < 48; i++) {
-            const a = parseFloat(pts[i * 2]?.['Baseline_Quantity.quantity'] ?? pts[i * 2]?.quantity ?? 0)
-            const b = parseFloat(pts[i * 2 + 1]?.['Baseline_Quantity.quantity'] ?? pts[i * 2 + 1]?.quantity ?? 0)
-            overlay[i] = Math.round(((a + b) / 2) * 4 * 10) / 10  // kWh → avg kW
-          }
-          setBaselineOverlay(overlay)
-        }
-      }
-      if (actual) setD4gActualPower(actual.data)
-    }).finally(() => setIntegrationsLoading(false))
+    api.d4gSchedulerStatus()
+      .then(r => { if (r.data) setSchedulerStatus(r.data) })
+      .catch(() => {})
+      .finally(() => setIntegrationsLoading(false))
   }, [activeView])
 
   // Poll scheduler status every 30s when integrations tab is open
@@ -455,7 +445,14 @@ export default function ForecastPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Look-Ahead &amp; Flow</h1>
-          <p className="text-sm text-gray-500 mt-0.5">DT-AUZ-001 · Auzances · {DT_LIMIT} kW limit</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            DT-AUZ-001 · Auzances · {DT_LIMIT} kW limit ·{' '}
+            <span className="text-indigo-600 font-medium">LV DistFlow auto-computed · PT30M</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse inline-block" />
+          OE → D4G every 15 min
         </div>
       </div>
 
@@ -747,46 +744,33 @@ export default function ForecastPage() {
         )}
       </div>
 
-      {/* Slot inspector */}
+      {/* Slot inspector — drag to inspect any 30-min slot */}
       <div ref={controlsRef} className="card">
-        <div className="flex items-center gap-6">
-          <div className="flex-shrink-0 text-xs text-gray-500">
-            {DEMO_DT.name} · {DEMO_DT.thermal_limit_kw} kW
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs text-gray-400">Slot</span>
-              <span className="text-sm font-semibold text-gray-900 font-mono">{slotToTime(slotIndex)}</span>
-            </div>
-            <input
-              type="range" min={0} max={47} value={slotIndex}
-              onChange={(e) => {
-                const s = Number(e.target.value)
-                setSlotIndex(s)
-                setResult(solveFrontend(s))
-                setRanSlot(s)
-              }}
-              className="w-full accent-indigo-500 cursor-pointer"
-            />
-            <div className="flex justify-between text-[9px] text-gray-400 mt-0.5">
-              <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:30</span>
-            </div>
-          </div>
-          <div className="flex-shrink-0 text-xs text-gray-400 text-right">
-            <div className="flex items-center gap-1 justify-end mb-0.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-              <span className="text-indigo-600 font-medium">Auto · PT15M</span>
-            </div>
-            OE to D4G every 15 min
-          </div>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs font-semibold text-gray-700">LV Branch Flow</span>
+          <span className="text-xs text-gray-400">— drag to inspect any slot · auto-computed from LinDistFlow</span>
+          <span className="font-mono text-xs font-semibold text-indigo-600 ml-auto">{slotToTime(slotIndex)}</span>
+        </div>
+        <input
+          type="range" min={0} max={47} value={slotIndex}
+          onChange={(e) => {
+            const s = Number(e.target.value)
+            setSlotIndex(s)
+            setResult(solveFrontend(s))
+            setRanSlot(s)
+          }}
+          className="w-full accent-indigo-500 cursor-pointer"
+        />
+        <div className="flex justify-between text-[9px] text-gray-400 mt-0.5">
+          <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:30</span>
         </div>
       </div>
 
       {/* Running state */}
       {running && (
-        <div className="card flex items-center justify-center py-6 gap-3 text-gray-500">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
-          <span className="text-sm">Running power flow…</span>
+        <div className="card flex items-center justify-center py-4 gap-3 text-gray-500">
+          <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+          <span className="text-xs">Computing DistFlow…</span>
         </div>
       )}
 
@@ -889,6 +873,94 @@ export default function ForecastPage() {
             </table>
           </div>
 
+
+          {/* DER generation panel */}
+          <div className="card p-0 overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-700">Connected Assets — DT-AUZ-001</span>
+              <span className="text-[10px] text-gray-400">LinDistFlow estimate · D4G live where available</span>
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left text-gray-400 font-medium px-4 py-2">Asset</th>
+                  <th className="text-left text-gray-400 font-medium px-4 py-2">Type</th>
+                  <th className="text-right text-gray-400 font-medium px-4 py-2">Capacity</th>
+                  <th className="text-right text-gray-400 font-medium px-4 py-2">Now (estimated)</th>
+                  <th className="text-right text-gray-400 font-medium px-4 py-2">D4G live (SPG agg.)</th>
+                  <th className="text-right text-gray-400 font-medium px-4 py-2">OE limit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Community Solar A — enrolled in FCA SPG */}
+                <tr className="border-t border-gray-100 bg-emerald-50/30">
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                      <span className="font-medium text-gray-800">Community Solar A</span>
+                      <span className="text-[10px] bg-indigo-100 text-indigo-600 border border-indigo-200 rounded px-1 font-medium">FCA SPG</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-500">Solar PV</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-700">50 kW</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-emerald-600">
+                    {evSurge ? '−38 kW (gen)' : result?.dt?.status === 'NORMAL' ? '−22 kW (gen)' : '−38 kW (gen)'}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono">
+                    {d4gActualPower?.actual_power_kw != null
+                      ? <span className="text-emerald-600">{d4gActualPower.actual_power_kw} kW agg.</span>
+                      : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-indigo-600">45 kW</td>
+                </tr>
+                {/* Community Solar B */}
+                <tr className="border-t border-gray-100 bg-emerald-50/30">
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                      <span className="font-medium text-gray-800">Community Solar B</span>
+                      <span className="text-[10px] bg-indigo-100 text-indigo-600 border border-indigo-200 rounded px-1 font-medium">FCA SPG</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-500">Solar PV</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-700">50 kW</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-emerald-600">
+                    {evSurge ? '−36 kW (gen)' : '−20 kW (gen)'}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-400">↑ aggregated above</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-indigo-600">45 kW</td>
+                </tr>
+                {/* Fougères BESS */}
+                <tr className="border-t border-gray-100">
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 flex-shrink-0" />
+                      <span className="font-medium text-gray-800">Fougères BESS</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-500">BESS</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-700">30 kW</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-700">
+                    {evSurge ? '+12 kW (disch.)' : '+12 kW (chg.)'}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-400">not in FCA</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-gray-500">28 kW</td>
+                </tr>
+              </tbody>
+              {d4gBaseline?.point_count > 0 && (
+                <tfoot>
+                  <tr className="border-t border-gray-200 bg-gray-50">
+                    <td colSpan={4} className="px-4 py-2 text-gray-400 text-[10px]">
+                      D4G baseline: {d4gBaseline.point_count} × PT15M · {d4gBaseline.interval_start ? new Date(d4gBaseline.interval_start).toISOString().slice(0,16).replace('T',' ') + ' UTC → +24h' : ''}
+                    </td>
+                    <td colSpan={2} className="px-4 py-2 text-right text-[10px] text-gray-400">
+                      {d4gBaseline.metadata?.total_der_count ?? 7} DERs · {d4gBaseline.metadata?.missing_der_count ?? 0} missing
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
 
           {/* Available FCA panel */}
           {result.violations.length > 0 && (

@@ -419,10 +419,10 @@ function DTDetailPanel({
           </div>
           <div className="flex gap-2 pt-1">
             <button onClick={onPowerFlow} className="flex-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white py-1.5 rounded font-medium flex items-center justify-center gap-1 transition-colors">
-              Power Flow <ChevronRight className="w-3.5 h-3.5" />
+              LV Analysis <ChevronRight className="w-3.5 h-3.5" />
             </button>
             <button onClick={onOE} className="flex-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 py-1.5 rounded font-medium flex items-center justify-center gap-1 transition-colors">
-              OE Dispatch <ChevronRight className="w-3.5 h-3.5" />
+              Send OE <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
