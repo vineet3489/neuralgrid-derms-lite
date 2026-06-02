@@ -202,6 +202,10 @@ export const api = {
   sendOEtoD4G: (doc: unknown) =>
     apiClient.post('/lv-network/send-oe', doc),
 
+  // Quick activate — build A32 from curtailment_mw + duration and POST to D4G
+  d4gQuickActivate: (curtailment_mw: number, duration_minutes = 15) =>
+    apiClient.post('/lv-network/d4g/quick-activate', { curtailment_mw, duration_minutes }),
+
   // D4G 15-min scheduler
   d4gSchedulerStatus: () => apiClient.get('/lv-network/d4g/scheduler-status'),
   d4gBaseline: () => apiClient.get('/lv-network/d4g/baseline'),

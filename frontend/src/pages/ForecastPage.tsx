@@ -212,7 +212,7 @@ function solveFrontend(slot: number): PowerFlowResult {
     let v_status = 'NORMAL'
     if (v_end_pu < 0.90 || v_end_pu > 1.10) v_status = 'CRITICAL'
     else if (v_end_pu < 0.94) v_status = 'LOW'
-    else if (v_end_pu > 1.06) v_status = 'HIGH'
+    else if (v_end_pu > 1.10) v_status = 'HIGH'   // EN 50160: ±10% of nominal
 
     return {
       branch_id: br.id,

@@ -205,8 +205,12 @@ export default function OperatingEnvelopePage() {
   const [secondsAgo, setSecondsAgo] = useState(0)
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // D4G scheduler status
+  // D4G scheduler status + live data
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null)
+  const [d4gActual, setD4gActual] = useState<any>(null)
+  const [d4gBaseline, setD4gBaseline] = useState<any>(null)
+  const [activationAck, setActivationAck] = useState<any>(null)
+  const [activating, setActivating] = useState(false)
 
   // Auto-load OE on mount
   useEffect(() => {
@@ -215,13 +219,15 @@ export default function OperatingEnvelopePage() {
     }
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch D4G scheduler status on mount and every 30s
+  // Fetch D4G live data on mount and every 60s
   useEffect(() => {
-    const fetchStatus = () => {
+    const fetchD4G = () => {
       api.d4gSchedulerStatus().then(r => setSchedulerStatus(r.data)).catch(() => {})
+      api.d4gActualPower().then(r => setD4gActual(r.data)).catch(() => {})
+      api.d4gBaseline().then(r => setD4gBaseline(r.data)).catch(() => {})
     }
-    fetchStatus()
-    const id = setInterval(fetchStatus, 30_000)
+    fetchD4G()
+    const id = setInterval(fetchD4G, 60_000)
     return () => clearInterval(id)
   }, [])
 
@@ -298,41 +304,37 @@ export default function OperatingEnvelopePage() {
     setLastRefreshedAt(new Date())
     setOeLoading(false)
 
-    setSending(true)
-    try {
-      const sendResp = await fetch(
-        `${import.meta.env.VITE_API_URL || ''}/api/v1/lv-network/send-oe`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('ng_token') || ''}`,
-          },
-          body: JSON.stringify(doc),
-        }
-      )
-      const result = sendResp.ok ? await sendResp.json() : null
-      const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
-      if (result?.sent) {
-        setSentBanner({
-          text: `A38 accepted by Digital4Grids · ${mrid} · Ack: ${result.ack_id || 'received'}`,
-          isDemo: !!result.simulated,
-          ackId: result.ack_id,
-        })
-      } else {
-        // Treat stored/queued as success — never show "not configured" to operator
-        setSentBanner({
-          text: `A38 dispatched · ${mrid} · Queued for D4G delivery`,
-          isDemo: true,
-        })
-      }
-    } catch {
-      const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
-      setSentBanner({ text: `A38 prepared · ${mrid} · Could not reach send endpoint`, isDemo: false })
-    } finally {
-      setSending(false)
-    }
+    // A38 stored locally for IEC compliance log (not sent to D4G — they have no A38 receive endpoint)
+    const mrid = doc.ReferenceEnergyCurveOperatingEnvelope_MarketDocument.mRID
+    setSentBanner({
+      text: `A38 computed · ${mrid} · ${pts.length} slots · solver: ${solver}`,
+      isDemo: false,
+    })
   }, [selectedDtId, today])
+
+  // Derive curtailment from OE: find tightest slot max export during EV surge
+  // If actual SPG generation > OE limit → curtailment needed
+  const handleActivateD4G = useCallback(async () => {
+    setActivating(true)
+    setActivationAck(null)
+    try {
+      // Use tightest OE export limit during constrained slots (kW)
+      const constrainedMax = oePoints.filter(p => p.constraint !== '—')
+      const oeLimitKw = constrainedMax.length > 0
+        ? Math.min(...constrainedMax.map(p => p.quantity_Maximum))
+        : 90  // fallback
+      const actualKw = d4gActual?.actual_power_kw ?? 0
+      // Curtailment = how much to reduce below OE limit
+      // Send at least 0.01 MW even if actual < limit (to confirm connection)
+      const curtailment_mw = Math.max(0.01, (actualKw - oeLimitKw) / 1000)
+      const r = await api.d4gQuickActivate(curtailment_mw, 15)
+      setActivationAck(r.data)
+    } catch (e: any) {
+      setActivationAck({ sent: false, message: e?.message ?? 'Network error' })
+    } finally {
+      setActivating(false)
+    }
+  }, [oePoints, d4gActual])
 
   const handleCopyOE = () => {
     if (!oeDoc) return
@@ -415,43 +417,102 @@ export default function OperatingEnvelopePage() {
         {oeError && <p className="text-xs text-amber-500 mt-2">{oeError}</p>}
       </div>
 
-      {/* D4G Scheduler status */}
-      <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-100 rounded-lg px-4 py-3">
-        <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+      {/* D4G Live Connection Panel */}
+      <div className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+          <div className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', d4gActual?.configured ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300')} />
           <Radio className="w-3.5 h-3.5 text-indigo-500" />
-          <span className="text-xs font-semibold text-indigo-700">Auto · PT15M</span>
+          <span className="text-xs font-semibold text-gray-700">D4G Connection — FCA use case 02</span>
+          <span className={clsx('text-[10px] px-1.5 py-0.5 rounded border ml-1 font-semibold',
+            d4gActual?.configured ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'
+          )}>
+            {d4gActual?.configured ? 'LIVE' : 'NOT CONNECTED'}
+          </span>
+          <span className="text-xs text-gray-400 ml-auto">
+            SPG aggregator: Digital4Grids · resource group {d4gActual?.resource_group_id ? d4gActual.resource_group_id.slice(0,8) + '…' : '—'}
+          </span>
         </div>
-        <div className="flex-1 text-xs text-indigo-600">
-          Power flow runs every 15 min · OE dispatched to D4G automatically
-        </div>
-        {schedulerStatus?.last_activation_at && (
-          <div className="text-xs text-indigo-500 flex-shrink-0">
-            Last sent:{' '}
-            <span className="font-mono">
-              {new Date(schedulerStatus.last_activation_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            {schedulerStatus.last_curtailment_mw != null && (
-              <span className="ml-2 font-mono">{schedulerStatus.last_curtailment_mw} MW</span>
-            )}
+        <div className="grid grid-cols-4 divide-x divide-gray-100">
+          {/* Actual power */}
+          <div className="px-4 py-3">
+            <div className="text-[10px] text-gray-400 mb-0.5">SPG Actual Power</div>
+            <div className={clsx('text-lg font-bold', d4gActual?.actual_power_kw != null ? 'text-gray-900' : 'text-gray-300')}>
+              {d4gActual?.actual_power_kw != null ? `${d4gActual.actual_power_kw} kW` : '—'}
+            </div>
+            <div className="text-[10px] text-gray-400">
+              {d4gActual?.interval_start ? new Date(d4gActual.interval_start).toISOString().slice(11,16) + ' UTC slot' : 'latest PT15M'}
+            </div>
           </div>
-        )}
-        {schedulerStatus?.next_run_at && (
-          <div className="text-xs text-gray-500 flex-shrink-0">
-            Next:{' '}
-            <span className="font-mono text-indigo-600">
-              {new Date(schedulerStatus.next_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {/* Baseline */}
+          <div className="px-4 py-3">
+            <div className="text-[10px] text-gray-400 mb-0.5">Flex Forecast (Baseline)</div>
+            <div className={clsx('text-lg font-bold', d4gBaseline?.point_count > 0 ? 'text-gray-900' : 'text-gray-300')}>
+              {d4gBaseline?.point_count > 0 ? `${d4gBaseline.point_count} pts` : '—'}
+            </div>
+            <div className="text-[10px] text-gray-400">
+              {d4gBaseline?.point_count > 0
+                ? `${d4gBaseline.points?.filter((p:any) => p.kw > 0).length ?? 0} non-zero · peak ${Math.max(...(d4gBaseline.points?.map((p:any) => p.kw) ?? [0])).toFixed(1)} kW`
+                : 'not loaded'}
+            </div>
+          </div>
+          {/* DER count */}
+          <div className="px-4 py-3">
+            <div className="text-[10px] text-gray-400 mb-0.5">DERs in Resource Group</div>
+            <div className="text-lg font-bold text-gray-900">
+              {d4gActual?.total_der_count != null
+                ? `${(d4gActual.total_der_count ?? 0) - (d4gActual.missing_der_count ?? 0)} / ${d4gActual.total_der_count}`
+                : '—'}
+            </div>
+            <div className="text-[10px] text-amber-500">
+              {d4gActual?.missing_der_count > 0 ? `${d4gActual.missing_der_count} missing (D4G known issue)` : 'all reporting'}
+            </div>
+          </div>
+          {/* Scheduler */}
+          <div className="px-4 py-3">
+            <div className="text-[10px] text-gray-400 mb-0.5">Auto-Dispatch (PT15M)</div>
+            <div className="text-sm font-semibold text-gray-700">
+              {schedulerStatus?.next_run_at
+                ? new Date(schedulerStatus.next_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : '—'}
+            </div>
+            <div className="text-[10px] text-gray-400">
+              {schedulerStatus?.last_activation_at
+                ? `last: ${new Date(schedulerStatus.last_activation_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                : 'next scheduled run'}
+            </div>
+          </div>
+        </div>
+        {/* Activate button row */}
+        {oePoints.length > 0 && (
+          <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-3">
+            <button
+              onClick={handleActivateD4G}
+              disabled={activating}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              {activating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              Send A32 Activation to D4G
+            </button>
+            <span className="text-[10px] text-gray-400">
+              Sends A32 ActivationDocument to D4G /v1/activation · SPG curtails to OE limit for next PT15M slot
             </span>
+            {activationAck && (
+              <span className={clsx('text-xs font-medium ml-auto', activationAck.sent ? 'text-emerald-600' : 'text-red-500')}>
+                {activationAck.sent
+                  ? `✓ D4G ack'd · ${activationAck.doc_mrid?.slice(0,8)}… · slot ${activationAck.slot_start ? new Date(activationAck.slot_start).toISOString().slice(11,16) : '—'} UTC`
+                  : `✗ ${activationAck.message ?? 'Failed'}`}
+              </span>
+            )}
           </div>
         )}
       </div>
 
-
-      {/* Success banner */}
+      {/* A38 computed banner */}
       {sentBanner && (
-        <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700">
-          <CheckCircle className="w-4 h-4 flex-shrink-0" />
-          <span className="text-xs">{sentBanner.text}</span>
+        <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5">
+          <CheckCircle className="w-4 h-4 text-blue-500 flex-shrink-0" />
+          <span className="text-xs text-blue-700">{sentBanner.text}</span>
+          <span className="text-[10px] text-blue-400 ml-1">— stored for IEC compliance log · use "Send A32" above to dispatch to D4G</span>
         </div>
       )}
 

@@ -55,7 +55,7 @@ export const HTA_CIRCUITS: HTACircuit[] = [
 ]
 
 export const DISTRIBUTION_TRANSFORMERS: DistributionTransformer[] = [
-  { id: 'DT-AUZ-001', name: 'Hameau des Fougères', circuit_id: 'HTA-NORD', lat: 46.035, lng: 2.485, capacity_kva: 160, loading_pct: 58, voltage_v: 228.4, der_count: 3, status: 'NORMAL' },
+  { id: 'DT-AUZ-001', name: 'Hameau des Fougères', circuit_id: 'HTA-NORD', lat: 46.035, lng: 2.485, capacity_kva: 160, loading_pct: 107, voltage_v: 224.1, der_count: 3, status: 'WARNING' },
   { id: 'DT-AUZ-002', name: 'La Croix Blanche', circuit_id: 'HTA-NORD', lat: 46.048, lng: 2.478, capacity_kva: 250, loading_pct: 42, voltage_v: 231.2, der_count: 2, status: 'NORMAL' },
   { id: 'DT-AUZ-003', name: 'Moulin Neuf', circuit_id: 'HTA-NORD', lat: 46.055, lng: 2.495, capacity_kva: 400, loading_pct: 35, voltage_v: 232.8, der_count: 2, status: 'NORMAL' },
   { id: 'DT-AUZ-004', name: 'Zone Industrielle Est', circuit_id: 'HTA-EST', lat: 46.022, lng: 2.515, capacity_kva: 630, loading_pct: 91, voltage_v: 221.6, der_count: 1, status: 'WARNING' },

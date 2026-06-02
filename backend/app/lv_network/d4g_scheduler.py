@@ -44,8 +44,8 @@ _scheduler_state: dict[str, Any] = {
 
 # D4G live endpoint constants
 _D4G_BASE_URL = "https://lnt.digital4grids.com"
-_SENDER_EIC   = "17XTESTLNTDSO01T"
-_RECEIVER_EIC = "17XTESTD4GRID02T"
+_SENDER_EIC   = os.environ.get("D4G_SENDER_EIC",   "17XTESTD4GSO01T")
+_RECEIVER_EIC = os.environ.get("D4G_RECEIVER_EIC", "17XTESTD4GSO01T")
 
 
 def _get_d4g_creds() -> tuple[str, str]:
@@ -69,45 +69,64 @@ def _next_quarter(now: datetime) -> datetime:
 
 
 async def _fetch_baseline(api_key: str, resource_group_id: str) -> list[dict] | None:
-    """Fetch 96 × PT15M baseline points from D4G."""
+    """
+    Fetch 96 × PT15M baseline points from D4G.
+    Returns normalised [{position, timestamp_utc, kwh, kw}, ...].
+    """
     if not api_key or not resource_group_id:
         return None
     import httpx
+    from datetime import timedelta
     url = f"{_D4G_BASE_URL}/v1/baseline/{resource_group_id}"
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url, headers={"x-api-key": api_key})
-            if resp.status_code == 200:
-                data = resp.json()
-                # Handle both list and wrapped response
-                if isinstance(data, list):
-                    return data
-                return data.get("data") or data.get("points") or data
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            # Navigate IEC CIM nested path
+            doc    = data["ReferenceEnergyCurveBaselineNotification_MarketDocument"]
+            period = doc["Series"][0]["Series"][0]["Period"][0]
+            t0     = datetime.fromisoformat(period["timeInterval"]["start"].replace("Z", "+00:00"))
+            points = []
+            for p in period["Point"]:
+                pos = int(p["position"])
+                kwh = float(p["Baseline_Quantity"]["quantity"])
+                points.append({
+                    "position": pos,
+                    "timestamp_utc": (t0 + timedelta(minutes=(pos - 1) * 15)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "kwh": kwh,
+                    "kw": round(kwh * 4, 4),
+                })
+            return points
     except Exception as exc:
-        logger.warning("D4G baseline fetch failed: %s", exc)
+        logger.warning("D4G baseline fetch/parse failed: %s", exc)
     return None
 
 
 async def _fetch_actual_power(api_key: str, resource_group_id: str) -> float | None:
-    """Return latest actual power reading in kW from D4G."""
+    """
+    Return latest actual power reading in kW from D4G /v1/actual-power/{rg}/energy.
+    Parses IEC CIM ReferenceEnergyCurveHistoricalData_MarketDocument.
+    """
     if not api_key or not resource_group_id:
         return None
     import httpx
     url = f"{_D4G_BASE_URL}/v1/actual-power/{resource_group_id}/energy"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers={"x-api-key": api_key})
-            if resp.status_code == 200:
-                data = resp.json()
-                # Extract quantity from first reading
-                if isinstance(data, list) and data:
-                    return float(data[0].get("quantity", 0)) * 4  # kWh per PT15M → avg kW
-                if isinstance(data, dict):
-                    qty = data.get("quantity") or data.get("value") or data.get("energy_kwh")
-                    if qty is not None:
-                        return float(qty) * 4
+            resp = await client.get(url, params={"window": "latest", "resolution": "15m", "power_unit": "kW"},
+                                    headers={"x-api-key": api_key})
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            doc    = data["ReferenceEnergyCurveHistoricalData_MarketDocument"]
+            points = doc["Series"][0]["Series"][0]["Period"][0]["Point"]
+            if points:
+                kwh = float(points[-1]["Historical_Quantity"]["quantity"])
+                return round(kwh * 4, 3)   # kWh per PT15M → avg kW
     except Exception as exc:
-        logger.warning("D4G actual power fetch failed: %s", exc)
+        logger.warning("D4G actual power fetch/parse failed: %s", exc)
     return None
 
 
@@ -132,35 +151,34 @@ async def _send_activation(
     doc_mrid = str(uuid.uuid4())
     instr_mrid = str(uuid.uuid4())
 
+    fmt = "%Y-%m-%dT%H:%M:%S.000+00:00"
+    # Flat structure matching D4G /v1/activation spec (IEC 62325 A32)
     activation_doc = {
-        "ActivationDocument": {
-            "mRID": doc_mrid,
-            "type": "A32",
-            "createdDateTime": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "sender_MarketParticipant": {"mRID": _SENDER_EIC},
-            "receiver_MarketParticipant": {"mRID": _RECEIVER_EIC},
-            "FlexibilityInformation_MarketEvaluationPoint": [
-                {
-                    "mRID": resource_group_id,
-                    "flowDirection": "A02",   # downward flex
-                    "Instruction": [
-                        {
-                            "mRID": instr_mrid,
-                            "Period": {
-                                "timeInterval": {
-                                    "start": slot_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                                    "end":   slot_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                                },
-                                "resolution": "PT15M",
-                                "Point": [
-                                    {"position": 1, "quantity": round(curtailment_mw, 4)}
-                                ],
-                            },
-                        }
-                    ],
-                }
-            ],
-        }
+        "mRID": doc_mrid,
+        "type": "A32",
+        "businessType": "B83",
+        "createdDateTime": datetime.now(timezone.utc).strftime(fmt),
+        "flowDirection": [{"direction": "A02"}],   # A02 = reduce production (Flex Down)
+        "SenderMarketParticipant": {
+            "mRID": _SENDER_EIC,
+            "MarketRole": {"roleType": "A84"},
+        },
+        "ReceiverMarketParticipant": {"mRID": _RECEIVER_EIC},
+        "TimeSeries": [
+            {
+                "mRID": instr_mrid,
+                "marketEvaluationPoint.mRID": resource_group_id,
+                "flowDirection": "A02",
+                "TimeInterval": {
+                    "start": slot_start.strftime(fmt),
+                    "end":   slot_end.strftime(fmt),
+                },
+                "Period": {
+                    "resolution": "PT15M",
+                    "Point": [{"position": 1, "quantity": round(curtailment_mw, 4)}],
+                },
+            }
+        ],
     }
 
     try:
@@ -195,23 +213,36 @@ async def _send_activation(
         }
 
 
+def _get_oe_limit_kw_for_next_slot() -> float:
+    """
+    Return the OE export limit (kW) for the current/next 15-min slot from LinDistFlow.
+    Falls back to 90 kW if backend is unavailable.
+    """
+    try:
+        from app.lv_network.lindistflow_oe import compute_lindistflow_oe_48slots
+        result = compute_lindistflow_oe_48slots("DT-AUZ-001")
+        slots  = result.get("slots", [])
+        if not slots:
+            return 90.0
+        # Find slot closest to current UTC time
+        now_slot = (datetime.now(timezone.utc).hour * 2 + (1 if datetime.now(timezone.utc).minute >= 30 else 0))
+        slot = slots[min(now_slot, len(slots) - 1)]
+        return float(slot.get("quantity_Maximum", 90.0))
+    except Exception:
+        return 90.0   # safe fallback
+
+
 def _compute_curtailment_mw(baseline_points: list | None, actual_kw: float | None) -> float:
     """
-    Derive how much curtailment to request for the next 15-min slot.
-
-    Logic:
-      - If actual_kw > OE export limit → curtailment = excess
-      - OE limit is derived from LinDistFlow slot results (max_export_kw)
-      - Falls back to 0 (no curtailment) if data is unavailable
+    Derive curtailment for the next 15-min slot.
+    If actual SPG generation > OE export limit → curtailment = excess kW → MW.
+    If actual <= limit → 0 (no curtailment needed).
     """
-    # DT thermal headroom used as OE limit proxy (kW → MW)
-    OE_EXPORT_LIMIT_KW = 90.0   # demo: 90 kW max SPG export per DT
-
     if actual_kw is None:
         return 0.0
-
-    excess_kw = max(0.0, actual_kw - OE_EXPORT_LIMIT_KW)
-    return round(excess_kw / 1000.0, 4)   # kW → MW
+    oe_limit_kw = _get_oe_limit_kw_for_next_slot()
+    excess_kw   = max(0.0, actual_kw - oe_limit_kw)
+    return round(excess_kw / 1000.0, 6)   # kW → MW
 
 
 async def run_d4g_cycle() -> None:
