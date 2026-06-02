@@ -7,7 +7,7 @@ import {
 import {
   DEMO_DT, LV_BRANCHES_DEMO,
 } from '../data/auzanceNetwork'
-import { AlertTriangle, CheckCircle, ChevronRight, Loader2, Zap, Radio, Cpu, Database } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ChevronRight, Loader2, Zap } from 'lucide-react'
 import clsx from 'clsx'
 import { api } from '../api/client'
 
@@ -268,6 +268,23 @@ function branchStatusBadge(thermal: string, voltage: string) {
   return <span className={clsx('inline-flex px-2 py-0.5 rounded text-[10px] font-semibold border', cls)}>{label}</span>
 }
 
+// ─── D4G simulated solar (bell curve, peak ~12:00) ───────────────────────────
+
+function buildSimulatedSolar(): { time: string; baseline: number }[] {
+  return Array.from({ length: 96 }, (_, i) => {
+    const h = i / 4           // fractional hour
+    // Bell curve: sunrise ~06:00, peak ~12:30, sunset ~20:00
+    const x = (h - 13) / 3.5
+    const kw = h >= 6 && h <= 20 ? Math.max(0, 37 * Math.exp(-0.5 * x * x)) : 0
+    const hh = Math.floor(h)
+    const mm = (i % 4) * 15
+    return {
+      time: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
+      baseline: parseFloat(kw.toFixed(2)),
+    }
+  })
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function ForecastPage() {
@@ -275,7 +292,8 @@ export default function ForecastPage() {
   const location = useLocation()
   const navState = location.state as { slot?: number; dtId?: string } | null
 
-  const [activeView, setActiveView] = useState<'dayahead' | 'live' | 'integrations'>('dayahead')
+  const [activeView, setActiveView] = useState<'dayahead' | 'live' | 'd4g'>('dayahead')
+  const [d4gMode, setD4gMode] = useState<'live' | 'simulated'>('live')
   const [slotIndex, setSlotIndex] = useState<number>(() => navState?.slot ?? defaultSlot())
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<PowerFlowResult | null>(null)
@@ -351,9 +369,9 @@ export default function ForecastPage() {
     autoRun()
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch scheduler status when Integrations tab opens (baseline + actual already loaded on mount)
+  // Fetch scheduler status when D4G tab opens
   useEffect(() => {
-    if (activeView !== 'integrations') return
+    if (activeView !== 'd4g') return
     setIntegrationsLoading(true)
     api.d4gSchedulerStatus()
       .then(r => { if (r.data) setSchedulerStatus(r.data) })
@@ -361,11 +379,12 @@ export default function ForecastPage() {
       .finally(() => setIntegrationsLoading(false))
   }, [activeView])
 
-  // Poll scheduler status every 30s when integrations tab is open
+  // Poll scheduler status every 30s when D4G tab is open
   useEffect(() => {
-    if (activeView !== 'integrations') return
+    if (activeView !== 'd4g') return
     const id = setInterval(() => {
       api.d4gSchedulerStatus().then(r => setSchedulerStatus(r.data)).catch(() => {})
+      api.d4gActualPower().then(r => { if (r.data) setD4gActualPower(r.data) }).catch(() => {})
     }, 30_000)
     return () => clearInterval(id)
   }, [activeView])
@@ -473,11 +492,11 @@ export default function ForecastPage() {
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
               {activeView === 'dayahead' && <>Day-Ahead {forecastLoading && <span className="text-xs text-gray-400 font-normal">Loading…</span>}</>}
               {activeView === 'live' && <>Live <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block ml-1" /></>}
-              {activeView === 'integrations' && 'Integrations'}
+              {activeView === 'd4g' && <>D4G · Solar SPG</>}
             </h3>
           </div>
           <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs flex-shrink-0">
-            {(['dayahead', 'live', 'integrations'] as const).map((v, i) => (
+            {(['dayahead', 'live', 'd4g'] as const).map((v, i) => (
               <button
                 key={v}
                 onClick={() => setActiveView(v)}
@@ -487,7 +506,7 @@ export default function ForecastPage() {
                   activeView === v ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
                 )}
               >
-                {v === 'dayahead' ? 'Day-Ahead' : v === 'live' ? 'Live' : 'Integrations'}
+                {v === 'dayahead' ? 'Day-Ahead' : v === 'live' ? 'Live' : 'D4G'}
               </button>
             ))}
           </div>
@@ -498,7 +517,7 @@ export default function ForecastPage() {
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={forecastData.map(d => ({ ...d, baseline: baselineOverlay[d.slot] ?? null }))}
+                  data={forecastData}
                   margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
                   onClick={handleBarClick}
                   style={{ cursor: 'pointer' }}
@@ -610,137 +629,139 @@ export default function ForecastPage() {
             </div>
           </>
         ) : (
-          /* ── Integrations tab ─────────────────────────────────────────────── */
-          integrationsLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-400 mr-2" />
-              <span className="text-sm text-gray-500">Loading integration data…</span>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {/* D4G Scheduler */}
-              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
-                <div className="col-span-1 text-gray-400 font-medium pt-0.5">Scheduler</div>
-                <div className="col-span-3 grid grid-cols-3 gap-3">
-                  <div>
-                    <div className="text-gray-400 mb-0.5">Last run</div>
-                    <div className="text-gray-700 font-mono">
-                      {schedulerStatus?.last_run_at
-                        ? new Date(schedulerStatus.last_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-gray-400 mb-0.5">Next run</div>
-                    <div className="text-gray-700 font-mono">
-                      {schedulerStatus?.next_run_at
-                        ? new Date(schedulerStatus.next_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-gray-400 mb-0.5">Last curtailment</div>
-                    <div className="text-gray-700 font-mono">
-                      {schedulerStatus?.last_curtailment_mw != null ? `${schedulerStatus.last_curtailment_mw} MW` : '—'}
-                    </div>
-                  </div>
-                </div>
-              </div>
+          /* ── D4G Solar SPG tab ──────────────────────────────────────────── */
+          (() => {
+            const livePoints: { time: string; baseline: number }[] = (() => {
+              const pts: any[] = d4gBaseline?.points ?? []
+              if (pts.length === 0) return []
+              return pts.map((p: any) => ({
+                time: p.timestamp_utc ? p.timestamp_utc.slice(11, 16) : '',
+                baseline: p.kw ?? 0,
+              }))
+            })()
+            const simPoints = buildSimulatedSolar()
+            const chartData = d4gMode === 'live' ? livePoints : simPoints
+            const peakBaseline = chartData.length > 0 ? Math.max(...chartData.map(p => p.baseline)) : 0
+            const actualKw = d4gActualPower?.actual_power_kw
+            const xTicks = ['00:00','03:00','06:00','09:00','12:00','15:00','18:00','21:00','23:45']
+            const noLiveData = d4gMode === 'live' && chartData.length === 0
 
-              {/* Actual Power */}
-              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
-                <div className="col-span-1 text-gray-400 font-medium pt-0.5">Actual Power</div>
-                <div className="col-span-3 space-y-1">
-                  <div className="flex items-baseline gap-3">
-                    <span className={clsx('text-lg font-semibold', d4gActualPower?.actual_power_kw != null ? 'text-gray-900' : 'text-gray-400')}>
-                      {d4gActualPower?.actual_power_kw != null ? `${d4gActualPower.actual_power_kw} kW` : '—'}
-                    </span>
-                    <span className="text-gray-400">Solar SPG generation · latest PT15M slot</span>
-                  </div>
-                  {d4gActualPower?.interval_start && (
-                    <div className="text-gray-400 font-mono">
-                      slot {new Date(d4gActualPower.interval_start).toISOString().slice(11, 16)} UTC
-                      {d4gActualPower.total_der_count != null && (
-                        <span className="ml-2">
-                          · {d4gActualPower.total_der_count - (d4gActualPower.missing_der_count ?? 0)}/{d4gActualPower.total_der_count} DERs reporting
+            return (
+              <>
+                {/* Stats row + toggle */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-4 text-xs">
+                    <div>
+                      <span className="text-gray-400">Actual now</span>
+                      <span className="ml-1.5 font-semibold font-mono text-gray-900">
+                        {actualKw != null ? `${actualKw} kW` : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Peak baseline</span>
+                      <span className="ml-1.5 font-semibold font-mono text-emerald-600">
+                        {peakBaseline > 0 ? `${peakBaseline.toFixed(1)} kW` : '—'}
+                      </span>
+                    </div>
+                    {schedulerStatus?.next_run_at && (
+                      <div>
+                        <span className="text-gray-400">Next activation</span>
+                        <span className="ml-1.5 font-mono text-gray-600 text-[11px]">
+                          {new Date(schedulerStatus.next_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
-                      )}
-                    </div>
-                  )}
-                  {d4gActualPower?.missing_der_count > 0 && (
-                    <div className="text-amber-600">
-                      {d4gActualPower.missing_der_count} DER{d4gActualPower.missing_der_count > 1 ? 's' : ''} missing — D4G flagged as incomplete (known issue)
-                    </div>
-                  )}
-                  {d4gActualPower?.error && (
-                    <div className="text-red-500">{d4gActualPower.error}</div>
-                  )}
-                </div>
-              </div>
-
-              {/* Baseline */}
-              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
-                <div className="col-span-1 text-gray-400 font-medium pt-0.5">Baseline</div>
-                <div className="col-span-3 space-y-1">
-                  {d4gBaseline?.point_count > 0 ? (
-                    <>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-gray-900 font-semibold">{d4gBaseline.point_count} × PT15M</span>
-                        <span className="text-gray-400">from D4G aggregator</span>
-                        {d4gBaseline.points?.filter((p: any) => p.kw > 0).length > 0
-                          ? <span className="text-emerald-600">· shown on chart above</span>
-                          : <span className="text-gray-400">· all zeros (nighttime / no solar now)</span>}
                       </div>
-                      {d4gBaseline.interval_start && (
-                        <div className="text-gray-400 font-mono">
-                          {new Date(d4gBaseline.interval_start).toISOString().slice(0, 16).replace('T', ' ')} UTC
-                          → +24 h
-                        </div>
-                      )}
-                      {d4gBaseline.metadata?.missing_der_count > 0 && (
-                        <div className="text-amber-600">
-                          {d4gBaseline.metadata.missing_der_count} DERs missing from baseline
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-red-500">
-                      {d4gBaseline?.error ?? 'No baseline returned — check D4G credentials'}
+                    )}
+                  </div>
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs flex-shrink-0">
+                    {(['live', 'simulated'] as const).map((m, i) => (
+                      <button
+                        key={m}
+                        onClick={() => setD4gMode(m)}
+                        className={clsx(
+                          'px-3 py-1.5 font-medium transition-colors capitalize',
+                          i > 0 && 'border-l border-gray-200',
+                          d4gMode === m ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                        )}
+                      >
+                        {m === 'live' ? 'Live' : 'Simulated'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Chart */}
+                {noLiveData ? (
+                  <div className="h-56 flex flex-col items-center justify-center gap-2 text-gray-400">
+                    {integrationsLoading
+                      ? <><Loader2 className="w-5 h-5 animate-spin text-indigo-400" /><span className="text-sm">Loading D4G data…</span></>
+                      : <><span className="text-sm">No baseline data — check D4G credentials in Settings</span></>
+                    }
+                  </div>
+                ) : (
+                  <div className="h-56">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis
+                          dataKey="time"
+                          tick={{ fill: '#6b7280', fontSize: 9 }}
+                          ticks={xTicks}
+                          interval="preserveStartEnd"
+                        />
+                        <YAxis
+                          tick={{ fill: '#6b7280', fontSize: 10 }}
+                          unit=" kW"
+                          domain={[0, Math.max(Math.ceil(peakBaseline / 10) * 10 + 5, 10)]}
+                        />
+                        <Tooltip
+                          formatter={(v: any) => [`${v} kW`, 'Baseline']}
+                          labelFormatter={(l) => `${l}`}
+                          contentStyle={{ fontSize: 11, borderRadius: 8 }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="baseline"
+                          name="D4G Baseline"
+                          stroke="#10b981"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 3 }}
+                        />
+                        {actualKw != null && (
+                          <ReferenceLine
+                            y={actualKw}
+                            stroke="#f59e0b"
+                            strokeDasharray="5 3"
+                            strokeWidth={1.5}
+                            label={{ value: `Actual ${actualKw} kW`, position: 'insideTopRight', fontSize: 9, fill: '#f59e0b' }}
+                          />
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Legend */}
+                <div className="flex items-center gap-5 mt-2 text-[10px] text-gray-500">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-5 h-0 border-t-2 border-emerald-500 inline-block" />
+                    {d4gMode === 'live' ? 'D4G Baseline · 96 × PT15M' : 'Simulated solar profile'}
+                  </span>
+                  {actualKw != null && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-5 h-0 border-t-2 border-dashed border-amber-400 inline-block" />
+                      Actual ({actualKw} kW)
+                    </span>
+                  )}
+                  {d4gMode === 'live' && d4gBaseline?.interval_start && (
+                    <span className="text-gray-400 ml-auto">
+                      {new Date(d4gBaseline.interval_start).toISOString().slice(0, 10)} UTC · {d4gBaseline.point_count} pts
                     </span>
                   )}
                 </div>
-              </div>
-
-              {/* DER roster */}
-              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
-                <div className="col-span-1 text-gray-400 font-medium pt-0.5">DER roster</div>
-                <div className="col-span-3 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
-                    <span className="text-gray-700">FCA use case 02 — {d4gActualPower?.metadata?.resource_group_name ?? 'Solar SPG'}</span>
-                    <span className="text-gray-400">· {d4gActualPower?.total_der_count ?? 7} DERs total</span>
-                  </div>
-                  {(d4gActualPower?.metadata?.missing_ders ?? []).map((der: any) => (
-                    <div key={der.der_id} className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                      <span className="text-gray-400 font-mono text-[10px]">{der.name}</span>
-                      <span className="text-gray-400">· no data</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Assumptions */}
-              <div className="py-3 grid grid-cols-4 gap-4 text-xs">
-                <div className="col-span-1 text-gray-400 font-medium pt-0.5">Assumptions</div>
-                <div className="col-span-3 space-y-1 text-gray-500">
-                  <div>SPG metered via D4G telemetry · residual = DT head − SPG generation</div>
-                  <div>Missing DERs modelled as zero (D4G known issue — some devices erroneously flagged)</div>
-                  <div className="text-gray-400">Smart meter API: pending (Phase 2)</div>
-                </div>
-              </div>
-            </div>
-          )
+              </>
+            )
+          })()
         )}
       </div>
 
