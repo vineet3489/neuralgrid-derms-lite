@@ -783,9 +783,9 @@ def _d4g_key_rg() -> tuple[str, str]:
 
 
 def _d4g_eics() -> tuple[str, str]:
-    """Return (sender_eic, receiver_eic) from env vars, falling back to FCA demo EICs."""
-    sender   = os.environ.get("D4G_SENDER_EIC",   _D4G_DEFAULT_EIC)
-    receiver = os.environ.get("D4G_RECEIVER_EIC", "17XTESTD4GSO01T")
+    """Return (sender_eic, receiver_eic). Validated against D4G live API 2026-06-02."""
+    sender   = os.environ.get("D4G_SENDER_EIC",   "17XTESTLNTDSO01T")  # LNT DSO EIC
+    receiver = os.environ.get("D4G_RECEIVER_EIC", "17XTESTD4GSO01T")   # D4G Aggregator EIC
     return sender, receiver
 
 
@@ -957,7 +957,12 @@ async def d4g_quick_activate(
     fmt               = "%Y-%m-%dT%H:%M:%S.000+00:00"
     sender_eic, recv_eic = _d4g_eics()
 
-    # Flat structure matching D4G /v1/activation spec (IEC 62325 A32)
+    # Exact D4G /v1/activation spec (validated via live testing 2026-06-02):
+    # - TimeSeries is object not array
+    # - quantity must be string
+    # - FlowDirection and MeasurementUnit are required inside TimeSeries
+    # - SenderMarketParticipant.MarketRole.roleType must be A04 (DSO)
+    # - ReceiverMarketParticipant.MarketRole.roleType must be A27 (Aggregator)
     activation_doc = {
         "mRID": doc_mrid,
         "type": "A32",
@@ -966,24 +971,26 @@ async def d4g_quick_activate(
         "flowDirection": [{"direction": "A02"}],  # A02 = reduce production (Flex Down)
         "SenderMarketParticipant": {
             "mRID": sender_eic,
-            "MarketRole": {"roleType": "A84"},
+            "MarketRole": {"roleType": "A04"},    # A04 = DSO
         },
-        "ReceiverMarketParticipant": {"mRID": recv_eic},
-        "TimeSeries": [
-            {
-                "mRID": ts_mrid,
-                "marketEvaluationPoint.mRID": rg,
-                "flowDirection": "A02",
-                "TimeInterval": {
-                    "start": slot_start.strftime(fmt),
-                    "end":   slot_end.strftime(fmt),
-                },
-                "Period": {
-                    "resolution": "PT15M",
-                    "Point": [{"position": 1, "quantity": round(curtailment_mw, 4)}],
-                },
-            }
-        ],
+        "ReceiverMarketParticipant": {
+            "mRID": recv_eic,
+            "MarketRole": {"roleType": "A27"},    # A27 = Aggregator
+        },
+        "TimeSeries": {                            # object, not array
+            "mRID": ts_mrid,
+            "marketEvaluationPoint.mRID": rg,
+            "FlowDirection": {"direction": "A02"},
+            "MeasurementUnit": {"name": "MAW"},
+            "TimeInterval": {
+                "start": slot_start.strftime(fmt),
+                "end":   slot_end.strftime(fmt),
+            },
+            "Period": {
+                "resolution": "PT15M",
+                "Point": [{"position": 1, "quantity": str(round(curtailment_mw, 4))}],  # string
+            },
+        },
     }
 
     try:

@@ -44,8 +44,8 @@ _scheduler_state: dict[str, Any] = {
 
 # D4G live endpoint constants
 _D4G_BASE_URL = "https://lnt.digital4grids.com"
-_SENDER_EIC   = os.environ.get("D4G_SENDER_EIC",   "17XTESTD4GSO01T")
-_RECEIVER_EIC = os.environ.get("D4G_RECEIVER_EIC", "17XTESTD4GSO01T")
+_SENDER_EIC   = os.environ.get("D4G_SENDER_EIC",   "17XTESTLNTDSO01T")  # LNT DSO
+_RECEIVER_EIC = os.environ.get("D4G_RECEIVER_EIC", "17XTESTD4GSO01T")   # D4G Aggregator
 
 
 def _get_d4g_creds() -> tuple[str, str]:
@@ -152,33 +152,35 @@ async def _send_activation(
     instr_mrid = str(uuid.uuid4())
 
     fmt = "%Y-%m-%dT%H:%M:%S.000+00:00"
-    # Flat structure matching D4G /v1/activation spec (IEC 62325 A32)
+    # Exact D4G /v1/activation spec — validated live 2026-06-02
     activation_doc = {
         "mRID": doc_mrid,
         "type": "A32",
         "businessType": "B83",
         "createdDateTime": datetime.now(timezone.utc).strftime(fmt),
-        "flowDirection": [{"direction": "A02"}],   # A02 = reduce production (Flex Down)
+        "flowDirection": [{"direction": "A02"}],
         "SenderMarketParticipant": {
             "mRID": _SENDER_EIC,
-            "MarketRole": {"roleType": "A84"},
+            "MarketRole": {"roleType": "A04"},     # A04 = DSO
         },
-        "ReceiverMarketParticipant": {"mRID": _RECEIVER_EIC},
-        "TimeSeries": [
-            {
-                "mRID": instr_mrid,
-                "marketEvaluationPoint.mRID": resource_group_id,
-                "flowDirection": "A02",
-                "TimeInterval": {
-                    "start": slot_start.strftime(fmt),
-                    "end":   slot_end.strftime(fmt),
-                },
-                "Period": {
-                    "resolution": "PT15M",
-                    "Point": [{"position": 1, "quantity": round(curtailment_mw, 4)}],
-                },
-            }
-        ],
+        "ReceiverMarketParticipant": {
+            "mRID": _RECEIVER_EIC,
+            "MarketRole": {"roleType": "A27"},     # A27 = Aggregator
+        },
+        "TimeSeries": {                             # object, not array
+            "mRID": instr_mrid,
+            "marketEvaluationPoint.mRID": resource_group_id,
+            "FlowDirection": {"direction": "A02"},
+            "MeasurementUnit": {"name": "MAW"},
+            "TimeInterval": {
+                "start": slot_start.strftime(fmt),
+                "end":   slot_end.strftime(fmt),
+            },
+            "Period": {
+                "resolution": "PT15M",
+                "Point": [{"position": 1, "quantity": str(round(curtailment_mw, 4))}],
+            },
+        },
     }
 
     try:
