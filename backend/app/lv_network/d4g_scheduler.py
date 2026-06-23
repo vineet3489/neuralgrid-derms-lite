@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 _scheduler_state: dict[str, Any] = {
     "running": False,
+    "enabled": False,              # True only when manually started via API
     "last_run_at": None,          # ISO string
     "next_run_at": None,          # ISO string
     "last_activation_sent": None, # True / False / None (not yet run)
@@ -41,6 +42,9 @@ _scheduler_state: dict[str, Any] = {
     "resource_group_id": None,
     "run_count": 0,
 }
+
+# Task handle — set when scheduler is started, cancelled on stop
+_scheduler_task: Optional[asyncio.Task] = None
 
 # D4G live endpoint constants
 _D4G_BASE_URL = "https://lnt.digital4grids.com"
@@ -319,3 +323,28 @@ async def d4g_scheduler_loop() -> None:
         await asyncio.sleep(sleep_secs)
 
         await run_d4g_cycle()
+
+
+def start_scheduler() -> dict:
+    """Start the 15-min D4G scheduler loop (idempotent)."""
+    global _scheduler_task
+    if _scheduler_task and not _scheduler_task.done():
+        return {"started": False, "message": "Scheduler already running"}
+    _scheduler_state["enabled"] = True
+    _scheduler_state["last_error"] = None
+    _scheduler_task = asyncio.create_task(d4g_scheduler_loop(), name="d4g_scheduler")
+    logger.info("D4G scheduler started manually.")
+    return {"started": True, "next_run_at": _scheduler_state.get("next_run_at")}
+
+
+def stop_scheduler() -> dict:
+    """Cancel the running D4G scheduler loop."""
+    global _scheduler_task
+    if _scheduler_task and not _scheduler_task.done():
+        _scheduler_task.cancel()
+        _scheduler_task = None
+    _scheduler_state["enabled"] = False
+    _scheduler_state["running"] = False
+    _scheduler_state["next_run_at"] = None
+    logger.info("D4G scheduler stopped manually.")
+    return {"stopped": True}

@@ -307,6 +307,7 @@ export default function ForecastPage() {
   const [d4gBaseline, setD4gBaseline] = useState<any>(null)
   const [d4gActualPower, setD4gActualPower] = useState<any>(null)
   const [integrationsLoading, setIntegrationsLoading] = useState(false)
+  const [schedulerToggling, setSchedulerToggling] = useState(false)
   // D4G baseline overlaid on day-ahead chart (96 PT15M → sampled to 48 PT30M)
   const [baselineOverlay, setBaselineOverlay] = useState<Record<number, number>>({})
 
@@ -663,14 +664,52 @@ export default function ForecastPage() {
                         {peakBaseline > 0 ? `${peakBaseline.toFixed(1)} kW` : '—'}
                       </span>
                     </div>
-                    {schedulerStatus?.next_run_at && (
-                      <div>
-                        <span className="text-gray-400">Next activation</span>
-                        <span className="ml-1.5 font-mono text-gray-600 text-[11px]">
-                          {new Date(schedulerStatus.next_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    )}
+                    {/* Scheduler start/stop */}
+                    <div className="flex items-center gap-2 ml-2">
+                      <span className="text-gray-400">Auto-activation</span>
+                      {schedulerStatus?.enabled ? (
+                        <>
+                          <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                            On · next {schedulerStatus.next_run_at
+                              ? new Date(schedulerStatus.next_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                              : '—'}
+                          </span>
+                          <button
+                            disabled={schedulerToggling}
+                            onClick={async () => {
+                              setSchedulerToggling(true)
+                              try {
+                                await api.d4gSchedulerStop()
+                                const r = await api.d4gSchedulerStatus()
+                                setSchedulerStatus(r.data)
+                              } catch {} finally { setSchedulerToggling(false) }
+                            }}
+                            className="px-2 py-0.5 rounded border border-red-200 bg-red-50 text-red-600 text-[11px] font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
+                          >
+                            {schedulerToggling ? 'Stopping…' : 'Stop'}
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-gray-400">Off</span>
+                          <button
+                            disabled={schedulerToggling}
+                            onClick={async () => {
+                              setSchedulerToggling(true)
+                              try {
+                                await api.d4gSchedulerStart()
+                                const r = await api.d4gSchedulerStatus()
+                                setSchedulerStatus(r.data)
+                              } catch {} finally { setSchedulerToggling(false) }
+                            }}
+                            className="px-2 py-0.5 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                          >
+                            {schedulerToggling ? 'Starting…' : 'Start'}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs flex-shrink-0">
                     {(['live', 'simulated'] as const).map((m, i) => (

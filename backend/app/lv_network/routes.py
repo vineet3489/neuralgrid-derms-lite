@@ -796,6 +796,20 @@ async def d4g_scheduler_status(current_user: CurrentUserDep = None) -> dict:
     return _scheduler_state
 
 
+@router.post("/d4g/scheduler/start")
+async def d4g_scheduler_start(current_user: CurrentUserDep = None) -> dict:
+    """Manually start the 15-min D4G activation scheduler."""
+    from app.lv_network.d4g_scheduler import start_scheduler
+    return start_scheduler()
+
+
+@router.post("/d4g/scheduler/stop")
+async def d4g_scheduler_stop(current_user: CurrentUserDep = None) -> dict:
+    """Manually stop the 15-min D4G activation scheduler."""
+    from app.lv_network.d4g_scheduler import stop_scheduler
+    return stop_scheduler()
+
+
 @router.get("/d4g/baseline")
 async def d4g_baseline_proxy(
     window: str = Query("24h", description="Forecast window: 1h or 24h"),

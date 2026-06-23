@@ -208,6 +208,8 @@ export const api = {
 
   // D4G 15-min scheduler
   d4gSchedulerStatus: () => apiClient.get('/lv-network/d4g/scheduler-status'),
+  d4gSchedulerStart: () => apiClient.post('/lv-network/d4g/scheduler/start'),
+  d4gSchedulerStop: () => apiClient.post('/lv-network/d4g/scheduler/stop'),
   d4gBaseline: () => apiClient.get('/lv-network/d4g/baseline'),
   d4gActualPower: () => apiClient.get('/lv-network/d4g/actual-power'),
   d4gActivate: (doc: unknown) => apiClient.post('/lv-network/d4g/activate', doc),
